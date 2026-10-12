@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#5f6b45">
+<title>二号机，蹦蹦守门员</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#2b2a24;font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#2e2b24;touch-action:none;overscroll-behavior:none}
+#app{position:relative;margin:0 auto;max-width:520px;height:100%;height:100dvh;overflow:hidden;background:#7f8c57}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hud{position:absolute;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 10px) 12px 0;pointer-events:none;display:none}
+.row{display:flex;align-items:center;gap:8px}
+.pill{background:#f1e9c8;border:2.5px solid #2e2b24;border-radius:12px;padding:3px 10px;font-weight:800;font-size:15px;box-shadow:0 3px 0 #2e2b24}
+.bar{flex:1;height:20px;background:#3c3a30;border:2.5px solid #2e2b24;border-radius:10px;position:relative;overflow:hidden;box-shadow:0 3px 0 #2e2b24}
+.bar i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:7px}
+.bar span{position:absolute;inset:0;text-align:center;font-size:12px;line-height:15px;font-weight:800;color:#fff;text-shadow:0 1px 0 #000,0 0 3px #000}
+#xpbar i{background:linear-gradient(#a6dd6a,#5fa83b)}
+#hpbar i{background:linear-gradient(#f07a5a,#c0432b)}
+#pause{pointer-events:auto;width:36px;height:32px;padding:0;font-size:15px}
+#waveRow{margin-top:8px}
+#wavebar{height:8px;flex:1;background:rgba(0,0,0,.25);border-radius:4px;overflow:hidden}
+#wavebar i{display:block;height:100%;width:0;background:#f1e9c8}
+.ov{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;padding-top:calc(env(safe-area-inset-top) + 20px);padding-bottom:calc(env(safe-area-inset-bottom) + 20px);text-align:center}
+.show{display:flex}
+#title{background:radial-gradient(ellipse at 50% 40%,rgba(241,233,200,.15),rgba(30,28,22,.75))}
+h1{margin:0;font-size:38px;line-height:1.15;color:#f1e9c8;text-shadow:3px 3px 0 #2e2b24,-2px -2px 0 #2e2b24,2px -2px 0 #2e2b24,-2px 2px 0 #2e2b24;letter-spacing:2px;transform:rotate(-3deg)}
+h1 small{display:block;font-size:22px;color:#f3d35c}
+.btn{pointer-events:auto;font:inherit;font-weight:900;font-size:20px;color:#2e2b24;background:#f3d35c;border:3px solid #2e2b24;border-radius:16px;padding:12px 36px;box-shadow:0 5px 0 #2e2b24;cursor:pointer}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 #2e2b24}
+.hint{max-width:330px;color:#f1e9c8;font-size:14px;line-height:1.7;margin:22px 0;background:rgba(46,43,36,.6);padding:10px 16px;border-radius:12px;border:2px dashed #8fb7e8}
+.best{color:#f3d35c;font-weight:800;margin-top:14px;text-shadow:0 2px 0 #2e2b24}
+#cards{background:rgba(30,28,22,.72)}
+#cards h2{color:#f1e9c8;margin:0 0 14px;font-size:20px;text-shadow:0 2px 0 #000}
+.card{pointer-events:auto;width:100%;max-width:340px;background:#f1e9c8;border:3px solid #2e2b24;border-radius:14px;box-shadow:0 5px 0 #2e2b24;margin:7px 0;padding:10px 12px;display:flex;gap:12px;align-items:center;text-align:left;cursor:pointer;animation:pop .35s both}
+.card:nth-child(3){animation-delay:.07s}.card:nth-child(4){animation-delay:.14s}
+.card:active{transform:translateY(3px);box-shadow:0 2px 0 #2e2b24}
+.card .ic{font-size:30px;width:50px;height:50px;flex:none;display:flex;align-items:center;justify-content:center;background:#d9cfa4;border:2.5px solid #2e2b24;border-radius:12px}
+.card .tag{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px;border:2px solid #2e2b24;margin-bottom:3px}
+.t0{background:#9fc0e6}.t1{background:#e89a7a}.t2{background:#b6d77a}
+.card b{font-size:17px}.card .lv{float:right;font-size:12px;font-weight:800;color:#6b6450}
+.card p{margin:3px 0 0;font-size:12.5px;color:#555040;line-height:1.4}
+@keyframes pop{from{opacity:0;transform:translateY(20px) scale(.95)}to{opacity:1;transform:none}}
+#trans{background:#141310;color:#f1e9c8;font-size:44px;font-weight:900;letter-spacing:6px;transition:opacity .4s}
+#trans small{display:block;font-size:14px;letter-spacing:1px;color:#a9a283;margin-top:10px;font-weight:600}
+#over,#paused{background:rgba(20,19,16,.8);color:#f1e9c8}
+#over h2,#paused h2{font-size:34px;margin:0 0 10px;color:#e8775a;text-shadow:0 3px 0 #000}
+#over p{font-size:17px;margin:4px}
+#toast{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);color:#f3d35c;font-weight:900;font-size:26px;text-shadow:0 3px 0 #2e2b24,0 0 6px #000;pointer-events:none;opacity:0;transition:opacity .3s;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cv"></canvas>
+  <div id="hud">
+    <div class="row">
+      <div class="pill" id="lvl">等级 1</div>
+      <div class="bar" id="xpbar"><i></i><span>0/16</span></div>
+      <button class="pill" id="pause">❚❚</button>
+    </div>
+    <div class="row" id="waveRow">
+      <div class="pill" id="day" style="font-size:13px">第 1 天</div>
+      <div class="bar" id="hpbar" style="height:16px"><i></i><span style="font-size:11px;line-height:11px">战车 200/200</span></div>
+    </div>
+    <div class="row" style="margin-top:6px"><div id="wavebar"><i></i></div></div>
+  </div>
+  <div id="toast"></div>
+  <div class="ov show" id="title">
+    <h1>二号机，<small>蹦蹦守门员</small></h1>
+    <div class="hint">🖐 <b>长按并拖拽</b>画出路线，二号机会沿蓝色虚线蹦过去<br>守住身后的战车！它和二号机会自动开火<br>捡绿色宝石升级，每天结束挑选强化卡</div>
+    <button class="btn" id="startBtn">出 发</button>
+    <div class="best" id="bestT"></div>
+  </div>
+  <div class="ov" id="cards"><h2 id="cardsH">波次结束 · 剩余 1 次选卡</h2></div>
+  <div class="ov" id="trans"><div id="transT">第 2 天</div></div>
+  <div class="ov" id="paused"><h2 style="color:#f1e9c8">暂停</h2><button class="btn" id="resumeBtn">继 续</button><br><button class="btn" id="quitBtn" style="background:#d9cfa4;font-size:16px;padding:8px 24px">回到标题</button></div>
+  <div class="ov" id="over"><h2>战车被摧毁</h2><p id="overDays"></p><p id="overStat" style="font-size:14px;color:#a9a283"></p><p class="best" id="overBest"></p><br><button class="btn" id="againBtn">再来一局</button></div>
+</div>
+<script src="game.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
