@@ -67,7 +67,7 @@
   function create(W, H, bottomPad) {
     const g = {
       W, H, bottomPad: bottomPad || 0, t: 0, day: 1, state: 'play', level: 1, xp: 0, xpNeed: 16, pending: 0,
-      rv: { x: W / 2, y: 0, hp: 200, maxHp: 200, cd: 0, ang: -Math.PI / 2, w: 150, h: 72, hitT: 0, recoil: 0, tcd: 0, tang: -Math.PI / 2, shield: 0, shieldT: 0, kit: true },
+      rv: { x: W / 2, y: 0, hp: 240, maxHp: 240, cd: 0, ang: -Math.PI / 2, w: 150, h: 72, hitT: 0, recoil: 0, tcd: 0, tang: -Math.PI / 2, shield: 0, shieldT: 0, kit: true },
       bot: { x: W / 2, y: 0, path: [], cd: 0, hop: 0, phase: 0, face: 1, moving: false, mineCd: 1, ang: -Math.PI / 2, stun: 0 },
       enemies: [], bullets: [], gems: [], texts: [], mines: [], drones: [], fx: [], events: [], eshots: [], missiles: [], booms: [], spawnQ: [],
       wcd: { chain: 1, laser: 1.5, missile: 1, boomer: 1 }, flameOn: null,
@@ -95,7 +95,7 @@
   function startDay(g) {
     g.waveTime = 0; g.waveDur = Math.min(55, 24 + g.day * 3); g.spawning = true; g.spawnAcc = 0;
     g.bossDone = false; g.state = 'play'; g.rv.kit = true;
-    g.eliteDay = g.day >= 3 && g.day % 3 === 0 && g.day % 5 !== 0;
+    g.eliteDay = g.day >= 6 && g.day % 3 === 0 && g.day % 5 !== 0;
   }
   function stats(g) {
     const L = g.lv, cdr = Math.pow(0.92, L.overclock);
@@ -124,7 +124,7 @@
   // ---------- 选卡 ----------
   function rollTier(g) {
     const r = Math.random(), luck = g.lv.luck, d = g.day;
-    const epic = 0.03 + 0.03 * luck + 0.004 * d, rare = epic + 0.17 + 0.06 * luck + 0.01 * d;
+    const boost = d <= 5 ? 0.12 : 0, epic = 0.03 + 0.03 * luck + 0.004 * d + boost / 3, rare = epic + 0.17 + 0.06 * luck + 0.01 * d + boost;
     return r < epic ? 2 : r < rare ? 1 : 0;
   }
   function rollOffers(g) {
@@ -165,7 +165,7 @@
     return true;
   }
   function nextDay(g) {
-    g.day++; g.rv.hp = Math.min(g.rv.maxHp, g.rv.hp + g.rv.maxHp * (0.12 + 0.05 * g.lv.repairkit));
+    g.day++; g.rv.hp = Math.min(g.rv.maxHp, g.rv.hp + g.rv.maxHp * ((g.day <= 6 ? 0.25 : 0.12) + 0.05 * g.lv.repairkit));
     g.mines.length = 0; g.bullets.length = 0; g.eshots.length = 0; g.missiles.length = 0; g.booms.length = 0;
     startDay(g);
   }
@@ -186,7 +186,8 @@
   };
   const BOSSES = ['king', 'lich', 'colossus'];
   const BOSSNAME = { king: '骷髅王', lich: '巫妖', colossus: '岩石巨像' };
-  const hpK = d => (1 + 0.3 * (d - 1) + 0.03 * (d - 1) ** 2) * Math.pow(1.05, d - 1) * Math.pow(1.15, Math.max(0, d - 10));
+  const early = d => d >= 10 ? 1 : 0.72 + 0.031 * (d - 1);
+  const hpK = d => early(d) * (1 + 0.3 * (d - 1) + 0.03 * (d - 1) ** 2) * Math.pow(1.05, d - 1) * Math.pow(1.15, Math.max(0, d - 10));
   function spawnEnemy(g, type, opt) {
     opt = opt || {};
     const d = g.day, W = g.W, H = g.H;
@@ -197,8 +198,8 @@
       else if (side < 0.775) { x = -30; y = rnd(0, H * 0.65); }
       else { x = W + 30; y = rnd(0, H * 0.65); }
     }
-    const T = ET[type], spK = 1 + Math.min(0.6, 0.05 * (d - 1)), elite = !!opt.elite;
-    let hp = T.hp * hpK(d) * (T.boss ? 0.55 + 0.5 * (Math.floor(d / 5) - 1) : 1) * (elite ? 3.5 : 1);
+    const T = ET[type], spK = 1 + Math.min(0.6, 0.045 * Math.max(0, d - 3)), elite = !!opt.elite;
+    let hp = T.hp * hpK(d) * (T.boss ? (d === 5 ? 0.32 : 0.55) + 0.5 * (Math.floor(d / 5) - 1) : 1) * (elite ? 3.5 : 1);
     const e = {
       type, boss: !!T.boss, elite, x, y, vx: 0, vy: 0, kx: 0, ky: 0, hp, maxHp: hp, sp: T.sp * spK * rnd(0.9, 1.1) * (elite ? 1.1 : 1), r: T.r * (elite ? 1.25 : 1),
       atk: T.atk * (1 + 0.2 * (d - 1)) * Math.pow(1.1, Math.max(0, d - 10)) * (elite ? 1.5 : 1), xp: T.xp * (elite ? 5 : 1), armor: T.armor || 0, flash: 0, bumpCd: 0, phase: Math.random() * 6, attacking: false,
@@ -210,19 +211,20 @@
   function spawnTick(g, dt) {
     if (!g.spawning) return;
     const d = g.day, prog = g.waveTime / g.waveDur;
-    const rate = (1.0 + 0.42 * d + 0.025 * d * d) * (0.6 + 0.8 * prog);
+    const rate = early(d) * (1.0 + 0.42 * d + 0.025 * d * d) * (0.6 + 0.8 * prog);
     g.spawnAcc += rate * dt;
     while (g.spawnAcc >= 1) {
       g.spawnAcc -= 1;
       const W = [['skull', 10]];
-      if (d >= 2) W.push(['runner', 3 + 0.3 * d]);
-      if (d >= 3) W.push(['tank', 1.2 + 0.2 * d], ['spitter', 1.5 + 0.15 * d]);
-      if (d >= 4) W.push(['splitter', 2 + 0.1 * d]);
-      if (d >= 5) W.push(['shield', 1.5 + 0.2 * d]);
-      if (d >= 6) W.push(['bomber', 1.5 + 0.15 * d]);
+      if (d >= 3) W.push(['runner', 3 + 0.3 * d]);
+      if (d >= 4) W.push(['tank', 1.2 + 0.2 * d]);
+      if (d >= 6) W.push(['spitter', 1.5 + 0.15 * d]);
+      if (d >= 6) W.push(['splitter', 2 + 0.1 * d]);
+      if (d >= 7) W.push(['shield', 1.5 + 0.2 * d]);
+      if (d >= 8) W.push(['bomber', 1.5 + 0.15 * d]);
       let tot = W.reduce((s, w) => s + w[1], 0), r = Math.random() * tot, t = 'skull';
       for (const [k, w] of W) { if ((r -= w) <= 0) { t = k; break; } }
-      const eliteP = (d >= 4 ? 0.012 * (d - 3) : 0) + (g.eliteDay ? 0.1 : 0);
+      const eliteP = (d >= 7 ? 0.012 * (d - 6) : 0) + (g.eliteDay ? (g.day < 10 ? 0.03 : 0.1) : 0);
       spawnEnemy(g, t, { elite: Math.random() < eliteP });
     }
     if (d % 5 === 0 && !g.bossDone && prog > 0.4) {

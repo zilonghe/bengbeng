@@ -333,7 +333,7 @@
     show('cards', true);
   }
   function startTransition(day) {
-    const tr = $('trans'); $('transT').innerHTML = `第 ${day} 天<small>${day % 5 === 0 ? '⚠ 首领来袭：' + ['骷髅王', '巫妖', '岩石巨像'][(day / 5 - 1) % 3] : day % 3 === 0 ? '👑 精英日：大量精英骷髅' : ({ 2: '新敌人：疾行骷髅', 3: '新敌人：重甲骷髅、骷髅射手', 4: '新敌人：分裂骷髅', 6: '新敌人：自爆骷髅' }[day] || '骷髅越来越多了…')}</small>`;
+    const tr = $('trans'); $('transT').innerHTML = `第 ${day} 天<small>${day % 5 === 0 ? '⚠ 首领来袭：' + ['骷髅王', '巫妖', '岩石巨像'][(day / 5 - 1) % 3] : day % 3 === 0 && day >= 6 ? '👑 精英日：大量精英骷髅' : ({ 3: '新敌人：疾行骷髅', 4: '新敌人：重甲骷髅', 6: '新敌人：骷髅射手、分裂骷髅', 7: '新敌人：盾卫骷髅', 8: '新敌人：自爆骷髅' }[day] || '骷髅越来越多了…')}</small>`;
     tr.style.opacity = 0; show('trans', true); requestAnimationFrame(() => tr.style.opacity = 1);
     setTimeout(() => { BB.nextDay(g); g.bot.path = []; tr.style.opacity = 0; setTimeout(() => show('trans', false), 400); }, 1500);
   }

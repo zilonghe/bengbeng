@@ -35,42 +35,53 @@ const quiet = process.argv.includes('-q');
   for (const o of g.offers) assert(o.lv + o.gain <= o.max, `卡牌 ${o.name} 不超上限`);
 }
 
-// ---------- 3. 平衡模拟：一个“合格玩家”AI ----------
-function ai(g, memo) {
+// ---------- 3. 平衡模拟：强玩家 & 休闲玩家 ----------
+const PROFILES = {
+  strong: { react: 0.25, err: 0, block: 1, smart: true },
+  casual: { react: 0.9, err: 60, block: 0.35, smart: false },
+};
+function ai(g, memo, P) {
   const bot = g.bot, rv = g.rv;
-  memo.t -= 1 / 60; if (memo.t > 0 && bot.path.length) return; memo.t = 0.25;
-  // 优先拦截飞向战车的弹幕，其次处理离战车最近的威胁
+  memo.t -= 1 / 60; if (memo.t > 0) return; memo.t = P.react * (0.7 + Math.random() * 0.6);
   let best = null, bs = 1e9;
-  for (const s of g.eshots) { const d = Math.hypot(s.x - rv.x, s.y - rv.y); if (d < 260 && d < bs) { bs = d; best = { x: s.x + s.vx * 0.15, y: s.y + s.vy * 0.15 }; } }
+  if (Math.random() < P.block) for (const s of g.eshots) { const d = Math.hypot(s.x - rv.x, s.y - rv.y); if (d < 260 && d < bs) { bs = d; best = { x: s.x + s.vx * 0.15, y: s.y + s.vy * 0.15 }; } }
   if (!best) for (const e of g.enemies) {
-    const d = Math.hypot(e.x - rv.x, e.y - rv.y) - (e.type === 'bomber' ? 120 : 0) - (e.type === 'shield' ? 40 : 0);
+    const d = Math.hypot(e.x - rv.x, e.y - rv.y) - (P.smart && e.type === 'bomber' ? 120 : 0) - (P.smart && e.type === 'shield' ? 40 : 0);
     if (d < bs) { bs = d; best = e; }
   }
-  if (best) { const a = Math.atan2(best.y - rv.y, best.x - rv.x), d = Math.hypot(best.x - rv.x, best.y - rv.y); BB.setPath(g, [{ x: rv.x + Math.cos(a) * Math.max(60, d - 10), y: rv.y + Math.sin(a) * Math.max(60, d - 10) }]); }
-  else BB.setPath(g, [{ x: rv.x + (Math.random() - .5) * 200, y: rv.y - 140 - Math.random() * 150 }]);
+  const j = () => (Math.random() - .5) * 2 * P.err;
+  if (best) { const a = Math.atan2(best.y - rv.y, best.x - rv.x), d = Math.max(60, Math.hypot(best.x - rv.x, best.y - rv.y) - 10); BB.setPath(g, [{ x: rv.x + Math.cos(a) * d + j(), y: rv.y + Math.sin(a) * d + j() }]); }
+  else if (!bot.path.length) BB.setPath(g, [{ x: rv.x + (Math.random() - .5) * 200, y: rv.y - 140 - Math.random() * 150 }]);
 }
-function pickAI(g) {
+function pickAI(g, P) {
+  if (!P.smart) { const o = g.offers[(Math.random() * g.offers.length) | 0]; return BB.pick(g, o.id); }
   const score = o => (o.tier === 3 ? 100 : 0) + o.tier * 2 + (o.cat === '新武器' ? (Object.keys(g.lv).filter(k => BB.BYID[k].cat === 'weapon' && g.lv[k]).length < 4 ? 3 : -2) : 0) + (o.cat === '武器升级' ? 2.5 : 0) + (o.lv > 0 ? 1 : 0) + Math.random();
   const o = g.offers.slice().sort((a, b) => score(b) - score(a))[0]; BB.pick(g, o.id);
 }
-const RUNS = +(process.env.RUNS || 30), days = [], evos = {};
-for (let run = 0; run < RUNS; run++) {
-  const g = BB.create(390, 800, 20); let frames = 0; const memo = { t: 0 };
-  while (g.state !== 'over' && g.day < 30 && frames < 60 * 60 * 60) {
-    ai(g, memo); BB.update(g, 1 / 60); frames++;
-    while (g.state === 'cards') pickAI(g);
-    if (g.state === 'transition') BB.nextDay(g);
-    g.events.length = 0;
-    for (const e of g.enemies) if (!isFinite(e.x + e.y + e.hp)) throw 'NaN enemy';
-    if (!isFinite(g.rv.hp)) throw 'NaN hp';
+function sim(name, RUNS) {
+  const P = PROFILES[name], days = [], evos = {};
+  for (let run = 0; run < RUNS; run++) {
+    const g = BB.create(390, 800, 20); let frames = 0; const memo = { t: 0 };
+    while (g.state !== 'over' && g.day < 30 && frames < 60 * 60 * 60) {
+      ai(g, memo, P); BB.update(g, 1 / 60); frames++;
+      while (g.state === 'cards') pickAI(g, P);
+      if (g.state === 'transition') BB.nextDay(g);
+      g.events.length = 0;
+      for (const e of g.enemies) if (!isFinite(e.x + e.y + e.hp)) throw 'NaN enemy';
+      if (!isFinite(g.rv.hp)) throw 'NaN hp';
+    }
+    days.push(g.day);
+    BB.UPG.filter(u => u.cat === 'evo' && g.lv[u.id]).forEach(u => evos[u.name] = (evos[u.name] || 0) + 1);
+    if (!quiet) console.log(`[${name}] run ${run} 倒在第 ${g.day} 天 lvl ${g.level} kills ${g.kills}`);
   }
-  days.push(g.day);
-  BB.UPG.filter(u => u.cat === 'evo' && g.lv[u.id]).forEach(u => evos[u.name] = (evos[u.name] || 0) + 1);
-  if (!quiet) console.log(`run ${run} 倒在第 ${g.day} 天 lvl ${g.level} kills ${g.kills} build:`, BB.UPG.filter(u => g.lv[u.id]).map(u => u.name + g.lv[u.id]).join(' '));
+  days.sort((a, b) => a - b);
+  const avg = days.reduce((a, b) => a + b, 0) / RUNS, med = days[RUNS >> 1];
+  console.log(`[${name}] 死亡天数:`, days.join(','), '平均', avg.toFixed(1), '中位', med, '进化:', JSON.stringify(evos));
+  return { days, med, early: days.filter(d => d < 4).length / RUNS };
 }
-days.sort((a, b) => a - b);
-const avg = days.reduce((a, b) => a + b, 0) / RUNS, med = days[RUNS >> 1];
-console.log('死亡天数:', days.join(','), '平均', avg.toFixed(1), '中位', med, '进化出现:', JSON.stringify(evos));
-assert(days[0] >= 3, '没有在前两天就死掉（新手友好）');
-assert(med >= 7 && med <= 16, `中位数 ${med} 在 7~16 天之间`);
-assert(days[RUNS - 1] < 30, '没有无限续命');
+const RUNS = +(process.env.RUNS || 30);
+const c = sim('casual', RUNS), s = sim('strong', RUNS);
+assert(c.early <= 0.1, `休闲玩家第 4 天前阵亡比例 ${(c.early * 100).toFixed(0)}% ≤ 10%`);
+assert(c.med >= 6 && c.med <= 8, `休闲玩家中位 ${c.med} 在 6~8 天`);
+assert(s.med >= 10 && s.med <= 20, `强玩家中位 ${s.med} 在 10~20 天`);
+assert(s.days[RUNS - 1] < 30, '强玩家没有无限续命');
