@@ -81,7 +81,9 @@
     hurt() { tone(120, .12, 'sawtooth', .05, 70); }, boom() { noise(.3, .12); },
     waveEnd() { [392, 523, 659, 1046].forEach((f, i) => setTimeout(() => tone(f, .16, 'triangle', .05), i * 90)); },
     over() { [392, 330, 262, 196].forEach((f, i) => setTimeout(() => tone(f, .25, 'triangle', .06), i * 160)); },
-    boss() { tone(70, .8, 'sawtooth', .06, 50); }, click() { tone(660, .05, 'square', .03); },
+    boss() { tone(70, .8, 'sawtooth', .06, 50); },
+    zap() { noise(.08, .04); tone(1400, .08, 'sawtooth', .02, 300); }, laser() { tone(1800, .25, 'sawtooth', .03, 200); },
+    missile() { noise(.12, .03); }, block() { tone(900, .07, 'square', .04, 1300); }, spit() { tone(260, .08, 'triangle', .02, 400); }, click() { tone(660, .05, 'square', .03); },
   };
 
   // ---------- 输入：长按拖拽 ----------
@@ -90,13 +92,12 @@
     initAudio(); if (!g || g.state !== 'play' || paused) return;
     e.preventDefault(); cv.setPointerCapture(e.pointerId);
     const p = pt(e); drag = { id: e.pointerId, pts: [p], t0: performance.now(), cur: p };
-    g.bot.path = [{ x: p.x, y: p.y }];
+    BB.setPath(g, [p]);
   });
   cv.addEventListener('pointermove', e => {
     if (!drag || e.pointerId !== drag.id) return; e.preventDefault();
     const p = pt(e); drag.cur = p;
-    const path = g.bot.path, last = path[path.length - 1] || g.bot;
-    if (Math.hypot(p.x - last.x, p.y - last.y) > 6) { path.push({ x: p.x, y: p.y }); if (path.length > 240) path.shift(); }
+    BB.addPathPoint(g, p);
   });
   const up = e => { if (drag && e.pointerId === drag.id) drag = null; };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
@@ -181,6 +182,7 @@
     // 枪
     ctx.save(); ctx.translate(b.x, b.y - hop - 4); ctx.rotate(b.ang);
     ctx.fillStyle = '#4c5240'; rr(8, -3, 14, 6, 2); ctx.fill(); line(2); ctx.stroke(); ctx.restore();
+    if (b.stun > 0) { ctx.fillStyle = '#f3d35c'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; for (let i = 0; i < 3; i++) { const a = t * 6 + i * 2.1; ctx.fillText('★', b.x + Math.cos(a) * 14, b.y - 34 + Math.sin(a) * 4); } }
   }
 
   function drawEnemy(e, t) {
@@ -189,23 +191,30 @@
     shadow(0, e.r * .9, e.r * .9, e.r * .3);
     if (e.attacking) ctx.rotate(Math.sin(t * 25) * .15);
     ctx.scale(s, s);
-    const cloak = { skull: '#5a5244', runner: '#6b4d3f', brute: '#4a4d3c', elite: '#3e3a4f', boss: '#3a3530' }[e.type];
+    const cloak = e.elite ? '#3e3a4f' : { skull: '#5a5244', runner: '#6b4d3f', tank: '#4a4d3c', spitter: '#4f5a3a', splitter: '#6a5a2c', mini: '#6a5a2c', shield: '#4a4f5c', bomber: '#7a3a2a', king: '#3a3530', lich: '#45305a', colossus: '#5a5852' }[e.type];
+    if (e.burn > 0) ctx.globalAlpha = 1;
     // 腿
     line(2.2 / s); ctx.beginPath(); ctx.moveTo(-4, 6); ctx.lineTo(-5 - wob, 12); ctx.moveTo(4, 6); ctx.lineTo(5 + wob, 12); ctx.stroke();
     // 身体
     ctx.fillStyle = cloak; ctx.beginPath(); ctx.moveTo(-7, -1); ctx.lineTo(7, -1); ctx.lineTo(8, 8); ctx.lineTo(4, 6); ctx.lineTo(0, 9); ctx.lineTo(-4, 6); ctx.lineTo(-8, 8); ctx.closePath(); ctx.fill(); line(2 / s); ctx.stroke();
     // 头骨
-    const bone = e.flash > 0 ? '#ffffff' : e.type === 'elite' ? '#e6dcc0' : '#ece6d2';
+    const bone = e.flash > 0 ? '#ffffff' : e.type === 'colossus' ? '#a9a596' : e.type === 'lich' ? '#d9d0ef' : e.type === 'bomber' ? '#f0c6a8' : e.burn > 0 ? '#f7c08a' : e.brittle > 0 ? '#c8e8ff' : '#ece6d2';
     ctx.fillStyle = bone; ctx.beginPath(); ctx.arc(0, -8, 9, 0, 7); ctx.fill(); line(2.2 / s); ctx.stroke();
     rr(-5, -2, 10, 5, 2); ctx.fill(); ctx.stroke();
     ctx.strokeStyle = INK; ctx.lineWidth = 1 / s; ctx.beginPath(); ctx.moveTo(-1.7, -2); ctx.lineTo(-1.7, 3); ctx.moveTo(1.7, -2); ctx.lineTo(1.7, 3); ctx.stroke();
     ctx.fillStyle = '#26231d'; ctx.beginPath(); ctx.ellipse(-3.5, -8, 2.6, 3.2, 0, 0, 7); ctx.ellipse(3.5, -8, 2.6, 3.2, 0, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(-1, -3.5); ctx.lineTo(1, -3.5); ctx.fill();
-    if (e.type === 'elite' || e.type === 'boss' || e.type === 'runner') { ctx.fillStyle = e.type === 'runner' ? '#f3d35c' : '#ff5a3c'; ctx.beginPath(); ctx.arc(-3.5, -7.5, 1.2, 0, 7); ctx.arc(3.5, -7.5, 1.2, 0, 7); ctx.fill(); }
-    if (e.type === 'brute' || e.type === 'boss') { ctx.fillStyle = '#cfc6a6'; line(2 / s); for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(d * 6, -14); ctx.quadraticCurveTo(d * 13, -16, d * 12, -22); ctx.lineTo(d * 8, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); } }
-    if (e.type === 'elite' || e.type === 'boss') { ctx.fillStyle = '#f3d35c'; ctx.beginPath(); ctx.moveTo(-6, -15); ctx.lineTo(-6, -21); ctx.lineTo(-3, -18); ctx.lineTo(0, -22); ctx.lineTo(3, -18); ctx.lineTo(6, -21); ctx.lineTo(6, -15); ctx.closePath(); ctx.fill(); line(1.5 / s); ctx.stroke(); }
+    if (e.elite || e.boss || e.type === 'runner' || e.type === 'bomber') { ctx.fillStyle = e.type === 'runner' ? '#f3d35c' : e.type === 'lich' ? '#c58cff' : '#ff5a3c'; ctx.beginPath(); ctx.arc(-3.5, -7.5, 1.2, 0, 7); ctx.arc(3.5, -7.5, 1.2, 0, 7); ctx.fill(); }
+    if (e.type === 'tank' || e.type === 'king' || e.type === 'colossus') { ctx.fillStyle = '#cfc6a6'; line(2 / s); for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(d * 6, -14); ctx.quadraticCurveTo(d * 13, -16, d * 12, -22); ctx.lineTo(d * 8, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); } }
+    if (e.type === 'splitter') { line(1.2 / s); ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(-2, -12); ctx.lineTo(1, -9); ctx.lineTo(-1, -5); ctx.stroke(); }
+    if (e.type === 'spitter') { ctx.fillStyle = '#7fae4a'; ctx.beginPath(); ctx.arc(0, -2, 3, 0, 7); ctx.fill(); }
+    if (e.type === 'bomber') { line(1.5 / s); ctx.beginPath(); ctx.moveTo(0, -17); ctx.quadraticCurveTo(4, -21, 2, -24); ctx.stroke(); ctx.fillStyle = (t * 8 | 0) % 2 ? '#ffde59' : '#ff5a3c'; ctx.beginPath(); ctx.arc(2, -25, 2.2, 0, 7); ctx.fill(); }
+    if (e.type === 'lich') { ctx.fillStyle = '#6a4a8f'; line(1.5 / s); ctx.beginPath(); ctx.moveTo(-10, -10); ctx.quadraticCurveTo(0, -26, 10, -10); ctx.lineTo(8, -14); ctx.quadraticCurveTo(0, -20, -8, -14); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    if (e.type === 'shield' && !e.shBroken) { ctx.fillStyle = '#8b98a8'; line(1.8 / s); rr(-10, 0, 20, 9, 3); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#c9d2dc'; ctx.fillRect(-1.5, 1.5, 3, 6); }
+    if (e.elite || e.type === 'king') { ctx.fillStyle = '#f3d35c'; ctx.beginPath(); ctx.moveTo(-6, -15); ctx.lineTo(-6, -21); ctx.lineTo(-3, -18); ctx.lineTo(0, -22); ctx.lineTo(3, -18); ctx.lineTo(6, -21); ctx.lineTo(6, -15); ctx.closePath(); ctx.fill(); line(1.5 / s); ctx.stroke(); }
     ctx.restore();
-    if (e.hp < e.maxHp && (e.type !== 'skull' && e.type !== 'runner')) {
+    if (e.elite || e.boss) { ctx.strokeStyle = e.boss ? 'rgba(255,90,60,.6)' : 'rgba(243,211,92,.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(e.x, e.y + e.r * .9, e.r * 1.1, e.r * .4, 0, 0, 7); ctx.stroke(); }
+    if (e.hp < e.maxHp && !['skull', 'runner', 'mini'].includes(e.type)) {
       const w = e.r * 2.2, p = e.hp / e.maxHp;
       ctx.fillStyle = '#2e2b24'; ctx.fillRect(e.x - w / 2 - 1, e.y - e.r * 2.3 - 1, w + 2, 6);
       ctx.fillStyle = '#e8775a'; ctx.fillRect(e.x - w / 2, e.y - e.r * 2.3, w * p, 4);
@@ -240,12 +249,26 @@
       ctx.fillStyle = '#7fd04e'; ctx.beginPath(); ctx.moveTo(0, -s * 1.3); ctx.lineTo(s, 0); ctx.lineTo(0, s * 1.3); ctx.lineTo(-s, 0); ctx.closePath(); ctx.fill(); line(1.8); ctx.stroke();
       ctx.fillStyle = '#d6ffb0'; ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * .4, -s * .1); ctx.lineTo(0, 0); ctx.closePath(); ctx.fill(); ctx.restore();
     }
+    // 冰霜光环
+    if (st.frostK) { ctx.save(); ctx.fillStyle = 'rgba(170,220,255,.13)'; ctx.strokeStyle = 'rgba(200,235,255,.55)'; ctx.lineWidth = 2; ctx.setLineDash([3, 6]); ctx.lineDashOffset = -t * 15; ctx.beginPath(); ctx.arc(g.bot.x, g.bot.y, st.frostR, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore(); }
     // 排序绘制
     const objs = g.enemies.map(e => ({ y: e.y, f: () => drawEnemy(e, t) }));
     objs.push({ y: g.rv.y + 20, f: () => drawRV(g.rv, t) });
     objs.push({ y: g.bot.y, f: () => drawBot(g.bot, t) });
     objs.sort((a, b) => a.y - b.y).forEach(o => o.f());
     drawPath();
+    // 护盾
+    if (st.shieldMax && g.rv.shield > 1) { const k = g.rv.shield / st.shieldMax; ctx.save(); ctx.strokeStyle = `rgba(110,190,255,${.25 + k * .5})`; ctx.fillStyle = `rgba(110,190,255,${k * .1})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(g.rv.x, g.rv.y - 6, g.rv.w * .62, g.rv.h * .95, 0, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+    // 车顶机枪
+    if (g.lv.turret) { const tx = g.rv.x + g.rv.w * .32, ty = g.rv.y - g.rv.h / 2 - 6; ctx.save(); ctx.translate(tx, ty); ctx.fillStyle = '#6c7357'; line(2); ctx.beginPath(); ctx.arc(0, 0, 7, 0, 7); ctx.fill(); ctx.stroke(); ctx.rotate(g.rv.tang); ctx.fillStyle = '#3a3e31'; rr(3, -2.5, 14, 5, 2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+    // 火焰
+    if (g.flameOn) { const f = g.flameOn; ctx.save(); ctx.translate(g.bot.x, g.bot.y - 6); ctx.rotate(f.a); for (let i = 0; i < 3; i++) { const r = f.r * (1 - i * .25), gr = ctx.createRadialGradient(0, 0, 4, 0, 0, r); gr.addColorStop(0, 'rgba(255,240,150,.9)'); gr.addColorStop(.5, 'rgba(255,140,40,.6)'); gr.addColorStop(1, 'rgba(220,60,20,0)'); ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, -.5 + Math.sin(t * 30 + i) * .06, .5 + Math.cos(t * 27 + i) * .06); ctx.closePath(); ctx.fill(); } ctx.restore(); }
+    // 敌方弹幕
+    for (const s of g.eshots) { ctx.fillStyle = s.r > 6 ? '#b07ae8' : '#9fd04e'; line(1.8); ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); ctx.stroke(); }
+    // 导弹
+    for (const m of g.missiles) { ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(m.vy, m.vx)); ctx.fillStyle = 'rgba(255,200,120,.6)'; ctx.beginPath(); ctx.arc(-9, 0, 3 + Math.random() * 2, 0, 7); ctx.fill(); ctx.fillStyle = '#d9d2b8'; line(1.5); rr(-7, -3, 13, 6, 3); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#e8775a'; ctx.beginPath(); ctx.arc(5, 0, 2, 0, 7); ctx.fill(); ctx.restore(); }
+    // 回旋镖
+    for (const b of g.booms) { ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.spin); ctx.fillStyle = '#c8873e'; line(2); ctx.beginPath(); ctx.moveTo(-12, 4); ctx.quadraticCurveTo(0, -12, 12, 4); ctx.quadraticCurveTo(0, -4, -12, 4); ctx.fill(); ctx.stroke(); ctx.restore(); }
     // 无人机
     for (const d of g.drones) {
       ctx.save(); ctx.translate(d.x, d.y); if (d.st === 'fly') shadow(0, 18, 9, 3);
@@ -268,11 +291,14 @@
         const k = 1 - f.life / .45, n = f.big ? 14 : 6;
         for (let i = 0; i < n; i++) { const a = i / n * 6.28 + f.x, d = k * f.r * 2.4; ctx.fillStyle = `rgba(236,230,210,${1 - k})`; ctx.fillRect(f.x + Math.cos(a) * d - 2, f.y + Math.sin(a) * d - 2 - k * 8, 4, 3); }
         ctx.fillStyle = `rgba(90,82,68,${(1 - k) * .5})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 + k), 0, 7); ctx.fill();
+      } else if (f.k === 'zap') { ctx.strokeStyle = `rgba(150,220,255,${f.life * 4.5})`; ctx.lineWidth = 3; ctx.beginPath(); f.pts.forEach((p, i) => { if (!i) ctx.moveTo(p.x, p.y); else { const q = f.pts[i - 1]; ctx.lineTo((p.x + q.x) / 2 + (Math.random() - .5) * 14, (p.y + q.y) / 2 + (Math.random() - .5) * 14); ctx.lineTo(p.x, p.y); } }); ctx.stroke(); ctx.strokeStyle = `rgba(255,255,255,${f.life * 4})`; ctx.lineWidth = 1.2; ctx.stroke();
+      } else if (f.k === 'beam') { const k = f.life / .25; ctx.lineCap = 'round'; ctx.strokeStyle = `rgba(255,90,140,${k * .6})`; ctx.lineWidth = f.w * k + 2; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x2, f.y2); ctx.stroke(); ctx.strokeStyle = `rgba(255,240,250,${k})`; ctx.lineWidth = f.w * .35 * k + 1; ctx.stroke();
+      } else if (f.k === 'ring') { const k = 1 - f.life / .6; ctx.strokeStyle = `rgba(${f.c},${1 - k})`; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * Math.min(1, k * 1.4), 0, 7); ctx.stroke();
       } else if (f.k === 'boom') { const k = 1 - f.life / .35; ctx.fillStyle = `rgba(255,${200 - k * 120},80,${1 - k})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (.3 + k * .7), 0, 7); ctx.fill(); line(2); ctx.globalAlpha = 1 - k; ctx.stroke(); ctx.globalAlpha = 1; }
     }
     // 伤害数字
     ctx.textAlign = 'center'; ctx.font = '900 14px sans-serif'; ctx.lineJoin = 'round';
-    for (const x of g.texts) { ctx.globalAlpha = Math.min(1, x.life * 3); ctx.lineWidth = 3.5; ctx.strokeStyle = INK; ctx.strokeText(x.s, x.x, x.y); ctx.fillStyle = '#f7d544'; ctx.fillText(x.s, x.x, x.y); }
+    for (const x of g.texts) { ctx.globalAlpha = Math.min(1, x.life * 3); ctx.lineWidth = 3.5; ctx.strokeStyle = INK; ctx.strokeText(x.s, x.x, x.y); ctx.fillStyle = x.crit ? '#ff7a4a' : '#f7d544'; ctx.fillText(x.s, x.x, x.y); }
     ctx.globalAlpha = 1;
     if (g.rv.hp / g.rv.maxHp < .3) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); const a = .15 + Math.sin(t * 6) * .1; const v = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .7); v.addColorStop(0, 'rgba(200,40,20,0)'); v.addColorStop(1, `rgba(200,40,20,${a})`); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H); }
   }
@@ -281,11 +307,11 @@
   const hud = { lvl: $('lvl'), xpI: $('xpbar').firstChild, xpS: $('xpbar').lastChild, hpI: $('hpbar').firstChild, hpS: $('hpbar').lastChild, day: $('day'), wave: $('wavebar').firstChild };
   let hudCache = '';
   function updHud() {
-    const k = [g.level, g.xp | 0, g.xpNeed, g.rv.hp | 0, g.rv.maxHp, g.day, (g.waveTime / g.waveDur * 50) | 0].join();
+    const k = [g.level, g.xp | 0, g.xpNeed, g.rv.hp | 0, g.rv.shield | 0, g.rv.maxHp, g.day, (g.waveTime / g.waveDur * 50) | 0].join();
     if (k === hudCache) return; hudCache = k;
     hud.lvl.textContent = '等级 ' + g.level; hud.xpI.style.width = (g.xp / g.xpNeed * 100) + '%'; hud.xpS.textContent = `${Math.floor(g.xp)}/${g.xpNeed}`;
-    hud.hpI.style.width = (g.rv.hp / g.rv.maxHp * 100) + '%'; hud.hpS.textContent = `战车 ${Math.ceil(g.rv.hp)}/${g.rv.maxHp}`;
-    hud.day.textContent = `第 ${g.day} 天` + (g.day % 5 === 0 ? ' 💀' : '');
+    hud.hpI.style.width = (g.rv.hp / g.rv.maxHp * 100) + '%'; hud.hpS.textContent = `战车 ${Math.ceil(g.rv.hp)}/${g.rv.maxHp}` + (g.rv.shield >= 1 ? ` 🔰${g.rv.shield | 0}` : '');
+    hud.day.textContent = `第 ${g.day} 天` + (g.day % 5 === 0 ? ' 💀' : g.eliteDay ? ' 👑' : '');
     hud.wave.style.width = Math.min(100, g.waveTime / g.waveDur * 100) + '%';
   }
   let toastT = 0;
@@ -296,17 +322,18 @@
   function showCards() {
     const box = $('cards'); [...box.querySelectorAll('.card')].forEach(c => c.remove());
     $('cardsH').textContent = `波次结束 · 剩余 ${g.pending} 次选卡`;
-    const cls = { '装置升级': 't0', '战车强化': 't1', '新装置': 't2' };
     for (const o of g.offers) {
-      const c = document.createElement('div'); c.className = 'card';
-      c.innerHTML = `<div class="ic">${o.icon}</div><div style="flex:1"><span class="tag ${cls[o.cat]}">${o.cat}</span><span class="lv">${o.lv === 0 ? '新!' : `Lv${o.lv} → Lv${o.lv + 1}`} · ${o.lv + 1}/${o.max}</span><br><b>${o.name}</b><p>${o.desc}</p></div>`;
+      const c = document.createElement('div'); c.className = 'card r' + o.tier; c.style.borderColor = o.color;
+      let pips = ''; for (let i = 1; i <= o.max; i++) pips += `<i class="${i <= o.lv ? 'on' : i <= o.to ? 'up' : ''}"></i>`;
+      const req = o.req ? `<p class="req">需要：${o.req.map(r => BB.BYID[r].name).join(' + ')} 满级 ✔</p>` : '';
+      c.innerHTML = `<div class="ic" style="border-color:${o.color}">${o.icon}</div><div style="flex:1"><span class="tag" style="background:${o.color}">${o.rarity}</span> <span class="tag cat">${o.cat}</span><span class="lv">${o.lv === 0 ? '新!' : `Lv${o.lv}`} → Lv${o.to}${o.gain > 1 ? ` (+${o.gain})` : ''}</span><br><b>${o.name}</b><div class="pips">${pips}</div><p>${o.desc}</p>${req}</div>`;
       c.addEventListener('click', () => { SFX.click(); BB.pick(g, o.id); if (g.state === 'cards') showCards(); else show('cards', false); });
       box.appendChild(c);
     }
     show('cards', true);
   }
   function startTransition(day) {
-    const tr = $('trans'); $('transT').innerHTML = `第 ${day} 天<small>${day % 5 === 0 ? '⚠ 首领来袭' : day % 3 === 0 ? '精英骷髅出没' : '骷髅越来越多了…'}</small>`;
+    const tr = $('trans'); $('transT').innerHTML = `第 ${day} 天<small>${day % 5 === 0 ? '⚠ 首领来袭：' + ['骷髅王', '巫妖', '岩石巨像'][(day / 5 - 1) % 3] : day % 3 === 0 ? '👑 精英日：大量精英骷髅' : ({ 2: '新敌人：疾行骷髅', 3: '新敌人：重甲骷髅、骷髅射手', 4: '新敌人：分裂骷髅', 6: '新敌人：自爆骷髅' }[day] || '骷髅越来越多了…')}</small>`;
     tr.style.opacity = 0; show('trans', true); requestAnimationFrame(() => tr.style.opacity = 1);
     setTimeout(() => { BB.nextDay(g); g.bot.path = []; tr.style.opacity = 0; setTimeout(() => show('trans', false), 400); }, 1500);
   }
@@ -314,7 +341,7 @@
     for (const ev of g.events) {
       if (SFX[ev.type]) SFX[ev.type]();
       if (ev.type === 'levelup') toast('升级！波次结束后选卡');
-      if (ev.type === 'boss') toast('💀 首领出现！');
+      if (ev.type === 'boss' && ev.name) toast(`💀 ${ev.name} 出现！`);
       if (ev.type === 'waveEnd') { drag = null; showCards(); }
       if (ev.type === 'transition') { show('cards', false); startTransition(ev.day); }
       if (ev.type === 'over') gameOver();
@@ -356,7 +383,7 @@
       handleEvents(); frame(t); updHud();
     } else {
       if (!demo || demo.state !== 'play' || demo.day > 1) demo = BB.create(W, H, safe().b);
-      if (demo.bot.path.length === 0) demo.bot.path.push({ x: W * (.25 + Math.random() * .5), y: H * (.45 + Math.random() * .25) });
+      if (demo.bot.path.length === 0) BB.setPath(demo, [{ x: W * (.25 + Math.random() * .5), y: H * (.45 + Math.random() * .25) }]);
       BB.update(demo, dt); demo.events.length = 0; demo.pending = 0; const og = g; g = demo; frame(t); g = og;
     }
     requestAnimationFrame(loop);

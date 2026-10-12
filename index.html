@@ -40,6 +40,10 @@ h1 small{display:block;font-size:22px;color:#f3d35c}
 .card .ic{font-size:30px;width:50px;height:50px;flex:none;display:flex;align-items:center;justify-content:center;background:#d9cfa4;border:2.5px solid #2e2b24;border-radius:12px}
 .card .tag{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px;border:2px solid #2e2b24;margin-bottom:3px}
 .t0{background:#9fc0e6}.t1{background:#e89a7a}.t2{background:#b6d77a}
+.card.r1{box-shadow:0 5px 0 #2e2b24,0 0 12px rgba(90,168,255,.6)}.card.r2{box-shadow:0 5px 0 #2e2b24,0 0 16px rgba(176,106,232,.8);background:#f3e9f7}.card.r3{box-shadow:0 5px 0 #2e2b24,0 0 20px rgba(243,154,44,.9);background:#fbecd2}
+.card{border-width:3.5px}.tag.cat{background:#e8e0bf}
+.pips{display:flex;gap:3px;margin-top:3px}.pips i{width:14px;height:6px;border-radius:3px;background:#d0c7a2;border:1.5px solid #2e2b24}.pips i.on{background:#7fb05a}.pips i.up{background:#f3d35c;animation:blink .6s infinite alternate}
+@keyframes blink{to{background:#fff6c0}}.card .req{color:#b0661c;font-weight:700}
 .card b{font-size:17px}.card .lv{float:right;font-size:12px;font-weight:800;color:#6b6450}
 .card p{margin:3px 0 0;font-size:12.5px;color:#555040;line-height:1.4}
 @keyframes pop{from{opacity:0;transform:translateY(20px) scale(.95)}to{opacity:1;transform:none}}
@@ -69,7 +73,7 @@ h1 small{display:block;font-size:22px;color:#f3d35c}
   <div id="toast"></div>
   <div class="ov show" id="title">
     <h1>二号机，<small>蹦蹦守门员</small></h1>
-    <div class="hint">🖐 <b>长按并拖拽</b>画出路线，二号机会沿蓝色虚线蹦过去<br>守住身后的战车！它和二号机会自动开火<br>捡绿色宝石升级，每天结束挑选强化卡</div>
+    <div class="hint">🖐 <b>长按并拖拽</b>画出路线，二号机会沿蓝色虚线蹦过去<br>守住身后的战车！它和二号机会自动开火<br>捡绿色宝石升级，每天结束挑选强化卡<br>二号机还能<b>挡下</b>射向战车的骨弹！<br>卡牌分 普通/稀有/史诗，两张满级可<b>进化</b></div>
     <button class="btn" id="startBtn">出 发</button>
     <div class="best" id="bestT"></div>
   </div>
