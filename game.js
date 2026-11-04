@@ -54,6 +54,20 @@
     U('vampire', 'evo', '血色堡垒', '🦇', 1, 0, '吸血溢出转化为护盾，护盾上限翻倍', ['lifesteal', 'shield']),
   ];
   const BYID = {}; UPG.forEach(u => BYID[u.id] = u);
+  // 每章独立的十关远征；局内成长重置，章节进度由外部存档保存。
+  const CHAPTERS = [
+    { id: 1, name: '荒野启程', color: '#82945c', description: '守住荒野公路', enemy: 'skull', weather: 'grass', tip: '拾取宝石，搭配你的第一套武器' , waveDelta: 0, moveScale: 1, magnetScale: 1, enemySpeed: 1 },
+    { id: 2, name: '锈铁哨站', color: '#b38355', description: '穿过重甲防线', enemy: 'tank', weather: 'rust', tip: '第 3 关起重甲增援，穿透和范围攻击更有效', waveDelta: 0, moveScale: 1, magnetScale: 1, enemySpeed: 1 },
+    { id: 3, name: '迷雾沼泽', color: '#729186', description: '小心分裂与伏击', enemy: 'splitter', weather: 'mist', tip: '迷雾缩短宝石吸取范围，主动靠近收集', waveDelta: 0, moveScale: 1, magnetScale: 0.8, enemySpeed: 1 },
+    { id: 4, name: '冰封隘口', color: '#8eafc1', description: '突破盾卫阵线', enemy: 'shield', weather: 'snow', tip: '冰封使双方移动减慢，撞击可打破盾卫护盾', waveDelta: 3, moveScale: 0.92, magnetScale: 1, enemySpeed: 0.92 },
+    { id: 5, name: '熔火废土', color: '#c58060', description: '避开自爆军团', enemy: 'bomber', weather: 'ash', tip: '波次更短、敌人更快，优先消灭自爆骷髅', waveDelta: -4, moveScale: 1, magnetScale: 1, enemySpeed: 1.08 },
+    { id: 6, name: '暗夜堡垒', color: '#9485aa', description: '决战骷髅军团', enemy: 'spitter', weather: 'night', tip: '第 3、6、9 关精英来袭，挡住射向战车的骨弹', waveDelta: 4, moveScale: 1, magnetScale: 1, enemySpeed: 1 },
+  ];
+  function stageInfo(g) {
+    const chapter = CHAPTERS[(g.chapter || 1) - 1], day = g.day;
+    const bossName = day % 5 === 0 ? BOSSNAME[BOSSES[((day / 5 - 1) + (g.campaign ? chapter.id - 1 : 0)) % BOSSES.length]] : '';
+    return { chapter: chapter.id, day, stage: g.campaign ? (chapter.id - 1) * 10 + day : day, name: chapter.name, bossName, tip: bossName ? '首领来袭：' + bossName : chapter.tip, weather: chapter.weather };
+  }
   const CATNAME = { weapon: '武器', mod: '枪械改装', passive: '机体被动', rv: '战车强化', evo: '进化' };
   const rnd = (a, b) => a + Math.random() * (b - a);
   const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
@@ -64,8 +78,12 @@
     return CATNAME[u.cat];
   }
 
-  function create(W, H, bottomPad) {
+  function create(W, H, bottomPad, options) {
+    const campaign = !!(options && options.chapter !== undefined);
+    const chapter = campaign ? Math.max(1, Math.min(CHAPTERS.length, Math.floor(Number(options.chapter) || 1))) : 1;
     const g = {
+      campaign, chapter, stage: (chapter - 1) * 10 + 1, clearedStage: (chapter - 1) * 10,
+      revives: 0, invulnerable: 0, recruits: [], offerVersion: 0, rerolledOffer: -1,
       W, H, bottomPad: bottomPad || 0, t: 0, day: 1, state: 'play', level: 1, xp: 0, xpNeed: 16, pending: 0,
       rv: { x: W / 2, y: 0, hp: 240, maxHp: 240, cd: 0, ang: -Math.PI / 2, w: 150, h: 72, hitT: 0, recoil: 0, tcd: 0, tang: -Math.PI / 2, shield: 0, shieldT: 0, kit: true },
       bot: { x: W / 2, y: 0, path: [], cd: 0, hop: 0, phase: 0, face: 1, moving: false, mineCd: 1, ang: -Math.PI / 2, stun: 0 },
@@ -93,18 +111,19 @@
     g.bot.path = g.bot.path.map(p => clampPt(g, p));
   }
   function startDay(g) {
-    g.waveTime = 0; g.waveDur = Math.min(55, 24 + g.day * 3); g.spawning = true; g.spawnAcc = 0;
+    g.stage = g.campaign ? (g.chapter - 1) * 10 + g.day : g.day;
+    g.waveTime = 0; g.waveDur = Math.min(55, 24 + g.day * 3) + (g.campaign ? CHAPTERS[g.chapter - 1].waveDelta : 0); g.spawning = true; g.spawnAcc = 0;
     g.bossDone = false; g.state = 'play'; g.rv.kit = true;
-    g.eliteDay = g.day >= 6 && g.day % 3 === 0 && g.day % 5 !== 0;
+    g.eliteDay = g.day >= (g.campaign && g.chapter === 6 ? 3 : 6) && g.day % 3 === 0 && g.day % 5 !== 0;
   }
   function stats(g) {
-    const L = g.lv, cdr = Math.pow(0.92, L.overclock);
+    const L = g.lv, cdr = Math.pow(0.92, L.overclock), chapter = g.campaign ? CHAPTERS[g.chapter - 1] : null;
     return {
       cdr,
       cDmg: 16 * (1 + 0.3 * L.cannon), cCd: 0.95 * Math.pow(0.88, L.cannon), cRange: 460,
       bDmg: (8 + g.level * 0.6) * (1 + 0.2 * L.power) * (1 + 0.1 * L.caliber), bCd: 0.5 / (1 + 0.18 * L.rapid), bRange: 270 + 30 * L.caliber, bR: 4 + L.caliber,
       shots: 1 + L.multi, pierce: L.pierce, bounce: L.bounce, crit: 0.05 + 0.08 * L.crit,
-      speed: 250 * (1 + 0.15 * L.speed), magnet: 70 + 45 * L.magnet, xpK: 1 + 0.15 * L.xpboost,
+      speed: 250 * (1 + 0.15 * L.speed) * (chapter ? chapter.moveScale : 1), magnet: (70 + 45 * L.magnet) * (chapter ? chapter.magnetScale : 1), xpK: 1 + 0.15 * L.xpboost,
       bump: 4 + 3 * L.speed + 10 * L.thorns + g.level * 0.3, bumpPush: 1 + 0.15 * L.speed + 0.2 * L.thorns,
       ls: 0.012 * L.lifesteal, armor: Math.max(0.4, 1 - 0.08 * L.armor), regen: 0.8 * L.regen,
       slowR: 120 + 35 * L.slow, slowK: L.slow ? 0.25 + 0.08 * L.slow : 0,
@@ -128,6 +147,7 @@
     return r < epic ? 2 : r < rare ? 1 : 0;
   }
   function rollOffers(g) {
+    g.offerVersion++;
     const evos = UPG.filter(u => u.cat === 'evo' && g.lv[u.id] === 0 && u.req.every(r => g.lv[r] >= BYID[r].max));
     let pool = UPG.filter(u => u.cat !== 'evo' && g.lv[u.id] < u.max);
     // 已有武器数量有上限（最多 5 种新武器），让构筑更聚焦
@@ -145,6 +165,40 @@
     }
     g.offers = out.map(({ id, tier }) => { const u = BYID[id]; const gain = TIERS[tier].gain; return { id, tier, gain, rarity: TIERS[tier].name, color: TIERS[tier].color, name: u.name, icon: u.icon, desc: u.desc, cat: catOf(g, id), lv: g.lv[id], to: Math.min(u.max, g.lv[id] + gain), max: u.max, req: u.req }; });
     return g.offers;
+  }
+  // 一组选卡仅能刷新一次；SDK/奖励校验在调用方完成。
+  function reroll(g, options) {
+    if (g.state !== 'cards' || g.rerolledOffer === g.offerVersion) return false;
+    const version = g.offerVersion;
+    rollOffers(g);
+    g.offerVersion = version;
+    g.rerolledOffer = version;
+    const minTier = Math.max(0, Math.min(2, Math.floor(Number(options && options.minTier !== undefined ? options.minTier : 1) || 0)));
+    const target = g.offers.find(o => o.tier < 3);
+    if (target && target.tier < minTier) {
+      target.tier = minTier; target.rarity = TIERS[minTier].name; target.color = TIERS[minTier].color;
+      target.gain = Math.min(TIERS[minTier].gain, target.max - target.lv);
+      target.to = target.lv + target.gain;
+    }
+    return g.offers.length > 0;
+  }
+  function applyRecruit(g, id, tier) {
+    const u = Object.prototype.hasOwnProperty.call(BYID, id) ? BYID[id] : null;
+    if (g.t !== 0 || !u || u.cat === 'evo' || g.recruits.includes(id) || g.recruits.length >= 3) return false;
+    const quality = Math.max(0, Math.min(2, Math.floor(Number(tier) || 0)));
+    for (let i = 0; i < TIERS[quality].gain; i++) applyLevel(g, id);
+    g.recruits.push(id);
+    return true;
+  }
+  function revive(g) {
+    if (g.state !== 'over' || g.revives >= 1) return false;
+    g.revives++; g.rv.hp = Math.ceil(g.rv.maxHp * 0.6); g.rv.hitT = 0;
+    g.invulnerable = 3; g.eshots.length = 0; g.bot.path = []; g.bot.stun = 0;
+    for (const e of g.enemies) if (rvDist(g, e.x, e.y) < 180) {
+      e.y = Math.min(e.y, g.rv.y - 220 - e.r); e.attacking = false; e.dash = 0;
+    }
+    g.state = 'play'; g.events.push({ type: 'revive' });
+    return true;
   }
   function applyLevel(g, id) {
     if (g.lv[id] >= BYID[id].max) return;
@@ -165,9 +219,11 @@
     return true;
   }
   function nextDay(g) {
+    if (g.campaign && g.day >= 10) return false;
     g.day++; g.rv.hp = Math.min(g.rv.maxHp, g.rv.hp + g.rv.maxHp * ((g.day <= 6 ? 0.25 : 0.12) + 0.05 * g.lv.repairkit));
     g.mines.length = 0; g.bullets.length = 0; g.eshots.length = 0; g.missiles.length = 0; g.booms.length = 0;
     startDay(g);
+    return true;
   }
 
   // ---------- 敌人 ----------
@@ -199,10 +255,13 @@
       else { x = W + 30; y = rnd(0, H * 0.65); }
     }
     const T = ET[type], spK = 1 + Math.min(0.6, 0.045 * Math.max(0, d - 3)), elite = !!opt.elite;
-    let hp = T.hp * hpK(d) * (T.boss ? (d === 5 ? 0.32 : 0.55) + 0.5 * (Math.floor(d / 5) - 1) : 1) * (elite ? 3.5 : 1);
+    // 巨像有范围震击；章节首领轮换时避免其基础血攻叠加成突然的数值墙。
+    const bossHp = g.campaign && type === 'colossus' ? 0.7 : 1;
+    const bossAtk = g.campaign && type === 'colossus' ? 0.8 : 1;
+    let hp = T.hp * bossHp * hpK(d) * (g.campaign ? 1 + 0.06 * (g.chapter - 1) : 1) * (T.boss ? (d === 5 ? 0.32 : 0.55) + 0.5 * (Math.floor(d / 5) - 1) : 1) * (elite ? 3.5 : 1);
     const e = {
-      type, boss: !!T.boss, elite, x, y, vx: 0, vy: 0, kx: 0, ky: 0, hp, maxHp: hp, sp: T.sp * spK * rnd(0.9, 1.1) * (elite ? 1.1 : 1), r: T.r * (elite ? 1.25 : 1),
-      atk: T.atk * (1 + 0.2 * (d - 1)) * Math.pow(1.1, Math.max(0, d - 10)) * (elite ? 1.5 : 1), xp: T.xp * (elite ? 5 : 1), armor: T.armor || 0, flash: 0, bumpCd: 0, phase: Math.random() * 6, attacking: false,
+      type, boss: !!T.boss, elite, x, y, vx: 0, vy: 0, kx: 0, ky: 0, hp, maxHp: hp, sp: T.sp * spK * rnd(0.9, 1.1) * (elite ? 1.1 : 1) * (g.campaign ? CHAPTERS[g.chapter - 1].enemySpeed : 1), r: T.r * (elite ? 1.25 : 1),
+      atk: T.atk * bossAtk * (g.campaign ? 1 + 0.04 * (g.chapter - 1) : 1) * (1 + 0.2 * (d - 1)) * Math.pow(1.1, Math.max(0, d - 10)) * (elite ? 1.5 : 1), xp: T.xp * (elite ? 5 : 1), armor: T.armor || 0, flash: 0, bumpCd: 0, phase: Math.random() * 6, attacking: false,
       cd: rnd(1, 2.5), cd2: 3, dash: 0, burn: 0, burnD: 0, slowF: 0, brittle: 0, shBroken: false,
     };
     g.enemies.push(e);
@@ -222,6 +281,7 @@
       if (d >= 6) W.push(['splitter', 2 + 0.1 * d]);
       if (d >= 7) W.push(['shield', 1.5 + 0.2 * d]);
       if (d >= 8) W.push(['bomber', 1.5 + 0.15 * d]);
+      if (g.campaign && g.chapter > 1 && d >= 3) W.push([CHAPTERS[g.chapter - 1].enemy, 0.75 + 0.1 * d]);
       let tot = W.reduce((s, w) => s + w[1], 0), r = Math.random() * tot, t = 'skull';
       for (const [k, w] of W) { if ((r -= w) <= 0) { t = k; break; } }
       const eliteP = (d >= 7 ? 0.012 * (d - 6) : 0) + (g.eliteDay ? (g.day < 10 ? 0.03 : 0.1) : 0);
@@ -230,7 +290,7 @@
     if (d % 5 === 0 && !g.bossDone && prog > 0.4) {
       g.bossDone = true;
       const n = d / 5 - 1, kinds = d >= 15 ? 2 : 1;
-      for (let k = 0; k < kinds; k++) { const bt = BOSSES[(n + k) % 3]; spawnEnemy(g, bt, { x: g.W * (kinds === 1 ? 0.5 : 0.3 + 0.4 * k), y: -50 }); g.events.push({ type: 'boss', name: BOSSNAME[bt] }); }
+      for (let k = 0; k < kinds; k++) { const bt = BOSSES[(n + k + (g.campaign ? g.chapter - 1 : 0)) % 3]; spawnEnemy(g, bt, { x: g.W * (kinds === 1 ? 0.5 : 0.3 + 0.4 * k), y: -50 }); g.events.push({ type: 'boss', name: BOSSNAME[bt] }); }
       g.shake = 10;
     }
   }
@@ -294,6 +354,7 @@
     return Math.hypot(x - cx, y - cy);
   }
   function hurtRV(g, amt) {
+    if (g.invulnerable > 0) return;
     const rv = g.rv, st = g._st;
     amt *= st.armor; rv.shieldT = 0;
     if (rv.shield > 0) { const a = Math.min(rv.shield, amt); rv.shield -= a; amt -= a; }
@@ -308,6 +369,7 @@
   function update(g, dt) {
     if (g.state !== 'play') return;
     g.t += dt; g.waveTime += dt;
+    g.invulnerable = Math.max(0, g.invulnerable - dt);
     const st = g._st = stats(g), rv = g.rv, bot = g.bot;
     if (g.waveTime >= g.waveDur) g.spawning = false;
     spawnTick(g, dt);
@@ -567,6 +629,13 @@
 
     if (rv.hp <= 0) { rv.hp = 0; g.state = 'over'; g.events.push({ type: 'over' }); return; }
     if (vacuum && g.gems.length === 0) {
+      g.clearedStage = g.campaign ? (g.chapter - 1) * 10 + g.day : g.day;
+      g.events.push({ type: 'stageClear', stage: g.clearedStage, chapter: g.chapter, day: g.day });
+      if (g.campaign && g.day === 10) {
+        g.pending = 0; g.offers = []; g.state = 'victory';
+        g.events.push({ type: 'victory', chapter: g.chapter, stage: g.clearedStage });
+        return;
+      }
       g.pending += 1; g.state = 'cards'; g.eshots.length = 0; rollOffers(g);
       if (!g.offers.length) { g.pending = 0; g.state = 'transition'; g.events.push({ type: 'transition', day: g.day + 1 }); }
       else g.events.push({ type: 'waveEnd' });
@@ -576,6 +645,6 @@
     g.xp += v;
     while (g.xp >= g.xpNeed) { g.xp -= g.xpNeed; g.level++; g.xpNeed = Math.round(16 + 9 * (g.level - 1) + 0.5 * (g.level - 1) ** 2); g.pending++; g.events.push({ type: 'levelup' }); }
   }
-  const api = { UPG, TIERS, BYID, CATNAME, BOSSNAME, create, layout, update, pick, nextDay, rollOffers, stats, setPath, addPathPoint, clampPt, bounds };
+  const api = { UPG, TIERS, BYID, CATNAME, BOSSNAME, CHAPTERS, stageInfo, create, layout, update, pick, nextDay, rollOffers, reroll, revive, applyRecruit, stats, setPath, addPathPoint, clampPt, bounds };
   if (typeof module !== 'undefined') module.exports = api; else root.BB = api;
 })(this);

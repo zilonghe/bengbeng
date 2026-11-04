@@ -4,8 +4,19 @@
   const app = $('app'), cv = $('cv'), ctx = cv.getContext('2d');
   const INK = '#2e2b24';
   let W = 0, H = 0, dpr = 1, g = null, bg = null, paused = false, drag = null;
-  const BEST_KEY = 'bengbeng_best';
-  const best = () => +(localStorage.getItem(BEST_KEY) || 0);
+  const preview = new URLSearchParams(location.search).get('preview') === '1';
+  const saveKey = preview ? BBMeta.PREVIEW_KEY : BBMeta.KEY;
+  let storage;
+  try { storage = window.localStorage; } catch (_) { storage = { getItem() { throw Error('storage'); }, setItem() { throw Error('storage'); } }; }
+  let profile = BBMeta.load(storage, saveKey), selectedChapter = profile.unlockedChapter, run = null;
+  let platformBusy = false, dialogFinish = null, panelView = '', panelGeneration = 0, rankMode = 'pure';
+  const services = BBServices.create({ provider: window.BengbengPlatform, preview,
+    previewRewarded: () => platformPrompt('激励广告测试', '这是接入演示。点击完成才会发放奖励；取消不会获得奖励。').then(completed => ({ completed })),
+    previewPurchase: () => platformPrompt('补给购买测试', '测试补给只进入测试存档，不扣款，也不会影响正式存档。').then(confirmed => ({ confirmed })) });
+  const timers = new Set();
+  function later(fn, ms) { const id = setTimeout(() => { timers.delete(id); fn(); }, ms); timers.add(id); return id; }
+  function clearTimers() { timers.forEach(clearTimeout); timers.clear(); }
+  function uid() { return window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
   // ---------- 安全区 ----------
   const probe = document.createElement('div');
@@ -30,7 +41,9 @@
     const c = document.createElement('canvas'); c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
     const x = c.getContext('2d'); x.scale(dpr, dpr);
     const R = seeded(7);
-    const grd = x.createLinearGradient(0, 0, 0, h); grd.addColorStop(0, '#76824f'); grd.addColorStop(1, '#8b965d');
+    const themes = [['#76824f', '#8b965d'], ['#77785c', '#9b936d'], ['#556e64', '#7a8a6b'], ['#7598a6', '#a0b6b2'], ['#84604b', '#a5825d'], ['#48495f', '#6b6d73']];
+    const theme = themes[(g && g.campaign ? g.chapter : selectedChapter) - 1] || themes[0];
+    const grd = x.createLinearGradient(0, 0, 0, h); grd.addColorStop(0, theme[0]); grd.addColorStop(1, theme[1]);
     x.fillStyle = grd; x.fillRect(0, 0, w, h);
     for (let i = 0; i < 40; i++) { x.fillStyle = R() < .5 ? 'rgba(60,72,38,.18)' : 'rgba(200,200,130,.10)'; x.beginPath(); x.ellipse(R() * w, R() * h, 30 + R() * 90, 15 + R() * 40, R() * 3, 0, 7); x.fill(); }
     // 土路
@@ -101,7 +114,7 @@
   });
   const up = e => { if (drag && e.pointerId === drag.id) drag = null; };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-  ['touchstart', 'touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach(t => document.addEventListener(t, e => { if (e.target.tagName !== 'BUTTON' && !e.target.closest('.card')) e.preventDefault(); }, { passive: false }));
+  ['touchstart', 'touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach(t => document.addEventListener(t, e => { if (!e.target.closest('button') && !e.target.closest('.card') && !e.target.closest('#panel')) e.preventDefault(); }, { passive: false }));
 
   // ---------- 绘制 ----------
   function line(w) { ctx.strokeStyle = INK; ctx.lineWidth = w || 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; }
@@ -300,6 +313,18 @@
     ctx.textAlign = 'center'; ctx.font = '900 14px sans-serif'; ctx.lineJoin = 'round';
     for (const x of g.texts) { ctx.globalAlpha = Math.min(1, x.life * 3); ctx.lineWidth = 3.5; ctx.strokeStyle = INK; ctx.strokeText(x.s, x.x, x.y); ctx.fillStyle = x.crit ? '#ff7a4a' : '#f7d544'; ctx.fillText(x.s, x.x, x.y); }
     ctx.globalAlpha = 1;
+    if (g.campaign) {
+      const weather = BB.CHAPTERS[g.chapter - 1].weather;
+      if (weather === 'snow' || weather === 'ash') {
+        ctx.fillStyle = weather === 'snow' ? 'rgba(239,247,255,.55)' : 'rgba(250,199,133,.4)';
+        for (let i = 0; i < 20; i++) { const px = (i * 79 + Math.sin(t * .5 + i) * 20 + W) % W, py = (i * 113 + t * (weather === 'snow' ? 17 : -12) % H + H) % H; ctx.beginPath(); ctx.arc(px, py, weather === 'snow' ? 1.8 : 1.2, 0, 7); ctx.fill(); }
+      }
+      if (weather === 'mist') {
+        ctx.fillStyle = 'rgba(215,231,215,.065)';
+        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.ellipse(W / 2 + Math.sin(t * .15 + i * 2) * 90, H * (.25 + i * .22), W * .8, 45, -.12, 0, 7); ctx.fill(); }
+      }
+    }
+    if (g.invulnerable > 0) { ctx.strokeStyle = `rgba(186,235,228,${.4 + .4 * Math.sin(t * 12)})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(g.rv.x, g.rv.y, g.rv.w * .66, g.rv.h * .84, 0, 0, 7); ctx.stroke(); }
     if (g.rv.hp / g.rv.maxHp < .3) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); const a = .15 + Math.sin(t * 6) * .1; const v = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .7); v.addColorStop(0, 'rgba(200,40,20,0)'); v.addColorStop(1, `rgba(200,40,20,${a})`); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H); }
   }
 
@@ -311,7 +336,7 @@
     if (k === hudCache) return; hudCache = k;
     hud.lvl.textContent = '等级 ' + g.level; hud.xpI.style.width = (g.xp / g.xpNeed * 100) + '%'; hud.xpS.textContent = `${Math.floor(g.xp)}/${g.xpNeed}`;
     hud.hpI.style.width = (g.rv.hp / g.rv.maxHp * 100) + '%'; hud.hpS.textContent = `战车 ${Math.ceil(g.rv.hp)}/${g.rv.maxHp}` + (g.rv.shield >= 1 ? ` 🔰${g.rv.shield | 0}` : '');
-    hud.day.textContent = `第 ${g.day} 天` + (g.day % 5 === 0 ? ' 💀' : g.eliteDay ? ' 👑' : '');
+    hud.day.textContent = `第 ${g.campaign ? g.stage : g.day} 关` + (g.day % 5 === 0 ? ' 💀' : g.eliteDay ? ' 👑' : '');
     hud.wave.style.width = Math.min(100, g.waveTime / g.waveDur * 100) + '%';
   }
   let toastT = 0;
@@ -319,23 +344,192 @@
 
   // ---------- 流程 ----------
   const show = (id, on) => $(id).classList.toggle('show', on);
+  let noticeTimer;
+  function notice(message) {
+    $('liveNotice').textContent = message; clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => $('liveNotice').textContent = '', 3200);
+  }
+  function commit(result) {
+    if (!result.ok) { notice(result.error || '操作未完成'); return false; }
+    if (!BBMeta.save(storage, result.profile, saveKey)) { notice('存档写入失败，请检查浏览器存储后重试'); return false; }
+    profile = result.profile; updateWallet(); return true;
+  }
+  function updateWallet() { $('coins').textContent = profile.coins; $('panelCoins').textContent = '◈ ' + profile.coins; }
+  function serviceMessage(code, fallback) {
+    return { cancelled: '已取消', timeout: '请求超时，请重试', busy: '请等待当前操作完成', ads_unavailable: '广告暂不可用', ad_incomplete: '未完整观看，没有获得奖励', payments_unavailable: '补给暂不可购买', unverified_purchase: '订单正在确认，请稍后重试', duplicate_receipt: '这次奖励已经领取' }[code] || fallback;
+  }
+  function platformPrompt(heading, message) {
+    return new Promise(resolve => {
+      const previousFocus = document.activeElement;
+      $('platformHeading').textContent = heading; $('platformMessage').textContent = message;
+      ['title', 'panel', 'cards', 'over'].forEach(id => $(id).inert = true);
+      dialogFinish = value => { dialogFinish = null; show('platformDialog', false); ['title', 'panel', 'cards', 'over'].forEach(id => $(id).inert = false); previousFocus?.focus?.(); resolve(value); };
+      $('platformConfirm').onclick = () => dialogFinish && dialogFinish(true);
+      $('platformCancel').onclick = () => dialogFinish && dialogFinish(false);
+      show('platformDialog', true);
+      $('platformConfirm').focus?.();
+    });
+  }
+  async function rewarded(placement) {
+    if (platformBusy) return { ok: false, completed: false };
+    platformBusy = true;
+    try { return await services.showRewarded(placement); }
+    finally { platformBusy = false; if (dialogFinish) dialogFinish(false); }
+  }
+  function button(label, handler, className) {
+    const el = document.createElement('button'); el.textContent = label; el.className = className === undefined ? 'small-btn' : className; el.onclick = handler; return el;
+  }
+  function paragraph(text, className) { const el = document.createElement('p'); el.textContent = text; el.className = className || 'section-note'; return el; }
+  function openPanel(view) {
+    panelView = view; panelGeneration++; $('panelNotice').textContent = ''; $('panelBody').replaceChildren(); show('title', false); show('panel', true); updateWallet();
+    const render = { chapters: renderChapters, recruit: renderRecruit, collection: renderCollection, ranks: renderRanks, supplies: renderSupplies, help: renderHelp }[view];
+    if (render) render();
+  }
+  function refreshLobby() {
+    selectedChapter = Math.min(selectedChapter, profile.unlockedChapter);
+    const chapter = BB.CHAPTERS[selectedChapter - 1], offset = (selectedChapter - 1) * 10;
+    $('chapterNo').textContent = `第 ${selectedChapter} 章 · ${String(offset + 1).padStart(2, '0')}—${offset + 10} 关`;
+    $('chapterName').textContent = chapter.name;
+    const cleared = (profile.chapterBest[selectedChapter] || offset) - offset;
+    $('routeProgress').innerHTML = Array.from({ length: 10 }, (_, i) => `<i class="${i < cleared ? 'done ' : ''}${(i + 1) % 5 === 0 ? 'boss' : ''}"></i>`).join('');
+    $('routeProgress').setAttribute('aria-label', `本章已通过 ${cleared} 关，共 10 关`);
+    const starter = BBMeta.CARD_POOL.find(c => c.id === profile.equipped);
+    $('loadoutLine').textContent = starter ? `${starter.icon} ${starter.name} · 开局 Lv${profile.collection[starter.id] + 1}` : '空手出发 · 纯净挑战';
+    $('bestT').textContent = profile.bestStage ? `远征纪录 ${profile.bestStage} / 60 关` : profile.legacyBest ? `旧版纪录 ${profile.legacyBest} 天` : '长按拖拽，守住身后的战车';
+    updateWallet();
+  }
+  function renderChapters() {
+    $('panelTitle').textContent = '远征路线';
+    const body = $('panelBody');
+    BB.CHAPTERS.forEach(ch => {
+      const offset = (ch.id - 1) * 10, cleared = (profile.chapterBest[ch.id] || offset) - offset, locked = ch.id > profile.unlockedChapter;
+      const row = button('', () => { selectedChapter = ch.id; panelView = ''; panelGeneration++; show('panel', false); show('title', true); bg = makeBg(W, H); refreshLobby(); SFX.click(); }, 'chapter-row' + (selectedChapter === ch.id ? ' selected' : ''));
+      row.disabled = locked;
+      row.innerHTML = `<span class="chapter-number">${String(ch.id).padStart(2, '0')}</span><span class="chapter-copy"><strong>${ch.name}</strong><small>${offset + 1}—${offset + 10} 关 · ${ch.description}</small></span><span class="chapter-end">${locked ? '待解锁' : cleared === 10 ? '已通关' : `${cleared} / 10 →`}</span>`;
+      body.append(row);
+    });
+    body.append(paragraph('每章 10 关，第 5、10 关迎战首领。通关解锁下一章，每次出发重新构筑。'));
+  }
+  let lastDraws = [];
+  function renderRecruit() {
+    $('panelTitle').textContent = '招募工坊';
+    const body = $('panelBody');
+    body.innerHTML = `<div class="recruit-art" aria-hidden="true"><span>⚡</span><span>🌩️</span></div><p class="section-note">招募开局强化卡，带一张去远征。</p><div class="pity-line"><span>史诗保底</span><span>${profile.pity} / 20</span></div><div class="pity-track"><i style="width:${profile.pity / 20 * 100}%"></i></div>`;
+    const actions = document.createElement('div'); actions.className = 'recruit-actions';
+    [1, 10].forEach(count => {
+      const cost = count === 1 ? BBMeta.COST.single : BBMeta.COST.ten;
+      const btn = button('', () => {
+        const result = BBMeta.recruit(profile, count);
+        if (commit(result)) { SFX.levelup(); lastDraws = result.cards; openPanel('recruit'); }
+      }, 'btn' + (count === 1 ? ' secondary' : ''));
+      btn.innerHTML = `${count === 1 ? '招募一次' : '招募十次'}<small>◈ ${cost}</small>`; btn.disabled = profile.coins < cost; actions.append(btn);
+    });
+    body.append(actions);
+    const odds = document.createElement('div'); odds.className = 'odds'; odds.innerHTML = '<span>普通 70%</span><span>稀有 25%</span><span>史诗 5%</span>'; body.append(odds);
+    body.append(paragraph('十连至少一张稀有，最多 20 抽必出史诗。重复卡提升品质，未提升时返还 12 / 30 / 60 金币。'));
+    if (lastDraws.length) {
+      const results = document.createElement('div'); results.className = 'recruit-results';
+      lastDraws.forEach((draw, i) => {
+        const card = BB.BYID[draw.id], item = document.createElement('div'); item.className = 'recruit-result r' + draw.tier; item.style.animationDelay = i * .045 + 's';
+        item.innerHTML = `<span class="rarity">${BB.TIERS[draw.tier].name}</span><span class="recruit-icon">${card.icon}</span><b>${card.name}</b><small>${draw.upgraded ? '品质提升' : draw.duplicate ? `重复 · 返还 ◈ ${draw.refund}` : '新卡入库'}</small>`;
+        item.append(button(profile.equipped === draw.id ? '已装配' : '装配', () => { if (commit(BBMeta.equip(profile, draw.id))) { notice('已装配 ' + card.name); openPanel('recruit'); } }));
+        results.append(item);
+      }); body.append(results);
+    }
+  }
+  function renderCollection() {
+    $('panelTitle').textContent = '开局图鉴'; const body = $('panelBody');
+    body.append(paragraph('携带一张卡开局。普通 / 稀有 / 史诗分别获得 1 / 2 / 3 级；携卡成绩计入辅助榜。'));
+    body.append(button(profile.equipped ? '卸下开局卡 · 纯净挑战' : '当前：空手出发', () => { if (commit(BBMeta.equip(profile, null))) openPanel('collection'); }));
+    BBMeta.CARD_POOL.forEach(c => {
+      const owned = Object.prototype.hasOwnProperty.call(profile.collection, c.id), tier = profile.collection[c.id], row = document.createElement('div'); row.className = 'collection-row' + (owned ? '' : ' locked');
+      row.innerHTML = `<span class="collect-icon">${c.icon}</span><span class="collect-copy"><b>${c.name}</b><small>${owned ? BB.TIERS[tier].name + ` · 开局 Lv${tier + 1}` : '尚未招募'}</small><small>${BB.BYID[c.id].desc}</small></span>`;
+      const btn = button(profile.equipped === c.id ? '已装配' : '装配', () => { if (commit(BBMeta.equip(profile, c.id))) openPanel('collection'); }, 'small-btn' + (profile.equipped === c.id ? ' active' : ''));
+      btn.disabled = !owned; row.append(btn); body.append(row);
+    });
+    body.append(paragraph(`战斗中共有 ${BB.UPG.length} 种强化，两项前置满级可获得进化卡。`));
+  }
+  let rankRequest = 0;
+  function appendRanks(body, entries, cloud) {
+    if (!entries.length) { body.append(paragraph('还没有成绩\n完成一场远征，留下第一条纪录。', 'empty-state')); return; }
+    entries.slice(0, 30).forEach((entry, i) => {
+      const row = document.createElement('div'); row.className = 'rank-row';
+      const no = document.createElement('span'); no.className = 'rank-no'; no.textContent = String(i + 1).padStart(2, '0');
+      const info = document.createElement('span'), name = document.createElement('strong'); name.textContent = cloud ? entry.name : `第 ${entry.chapter} 章 · ${entry.victory ? '通关' : '远征'}`;
+      const detail = document.createElement('small'); detail.textContent = `${entry.kills} 击败 · Lv${entry.level}${entry.revives ? ' · 已复活' : ''}`; info.append(name, detail);
+      const score = document.createElement('span'); score.className = 'rank-score'; score.textContent = String(cloud ? entry.stage : entry.clearedStage); const unit = document.createElement('small'); unit.textContent = '关'; score.append(unit); row.append(no, info, score); body.append(row);
+    });
+  }
+  function renderRanks() {
+    $('panelTitle').textContent = services.cloudAvailable ? '挑战排行榜' : '本地挑战榜'; const body = $('panelBody'), request = ++rankRequest;
+    const tabs = document.createElement('div'); tabs.className = 'tabs';
+    [['pure', '纯净挑战'], ['assisted', '辅助远征']].forEach(([mode, label]) => tabs.append(button(label, () => { rankMode = mode; openPanel('ranks'); }, mode === rankMode ? 'active' : ''))); body.append(tabs);
+    body.append(paragraph((rankMode === 'pure' ? '未携开局卡，未重抽、未复活。' : '使用开局卡、重抽或复活的成绩。') + (services.cloudAvailable ? '按通关数、击败数、等级排序。' : '按通关数、击败数、用时排序。')));
+    if (services.cloudAvailable) {
+      const loading = paragraph('正在读取排行榜…'); body.append(loading);
+      services.listLeaderboard(rankMode).then(result => {
+        if (request !== rankRequest || panelView !== 'ranks') return;
+        loading.remove();
+        if (result.ok) appendRanks(body, result.entries, true);
+        else { body.append(paragraph('云榜暂不可用，以下显示本机成绩。')); appendRanks(body, BBMeta.leaderboard(profile, rankMode), false); }
+      });
+    } else {
+      appendRanks(body, BBMeta.leaderboard(profile, rankMode), false);
+      body.append(paragraph('成绩保存在当前浏览器。', 'section-note'));
+    }
+  }
+  function renderSupplies() {
+    $('panelTitle').textContent = '营地补给'; const body = $('panelBody'), generation = panelGeneration;
+    const today = BBMeta.shanghaiDay(Date.now()), claimed = profile.dailyDay >= today;
+    const daily = document.createElement('div'); daily.className = 'supply-row'; daily.innerHTML = '<span><b>每日补给</b><small>◈ 120 · 每日零点更新</small></span>';
+    const claim = button(claimed ? '已领取' : '领取', () => { const result = BBMeta.claimDaily(profile); if (commit(result)) { SFX.gem(); notice('补给到账 ◈ 120'); openPanel('supplies'); } }, 'btn'); claim.disabled = claimed; daily.append(claim); body.append(daily);
+    body.append(paragraph('完成关卡和击败敌人获得金币，整章通关额外奖励 150。', 'supply-section'));
+    if (services.paymentAvailable) {
+      const loading = paragraph('正在读取补给…'); body.append(loading);
+      services.getProducts().then(result => {
+        if (panelView !== 'supplies' || generation !== panelGeneration) return; loading.remove();
+        if (!result.ok) { body.append(paragraph('补给暂不可用')); return; }
+        result.products.forEach(product => {
+          const row = document.createElement('div'); row.className = 'supply-row';
+          const info = document.createElement('span'), name = document.createElement('b'), price = document.createElement('small'); name.textContent = product.name; price.textContent = `◈ ${product.coins}`; info.append(name, price); row.append(info);
+          row.append(button(product.displayPrice, async () => {
+            if (platformBusy) return; platformBusy = true;
+            try { const purchase = await services.purchase(product.id); if (purchase.ok && commit(BBMeta.fulfill(profile, purchase))) { notice(`补给到账 ◈ ${purchase.coins}`); openPanel('supplies'); } else if (!purchase.ok) notice(serviceMessage(purchase.error, '购买未完成')); }
+            finally { platformBusy = false; if (dialogFinish) dialogFinish(false); }
+          })); body.append(row);
+        });
+      });
+    }
+    if (preview) body.append(paragraph('当前为接入测试模式。金币、抽卡与成绩均使用独立测试存档。'));
+  }
+  function renderHelp() {
+    $('panelTitle').textContent = '守门员手册';
+    [['画出路线', '长按并拖拽，二号机会沿蓝色虚线蹦过去。松手也会走完路线。'], ['守住战车', '二号机和战车自动开火。用机身撞开敌人，还能挡下飞向战车的骨弹。'], ['构筑与进化', '捡绿色宝石升级，每关结束挑选强化。普通 / 稀有 / 史诗分别提升 1 / 2 / 3 级；两项前置满级后解锁进化。'], ['六章远征', '每章十关，第 5、10 关是首领。通关解锁新区域，金币和招募卡永久保留。每局有一次免费重抽。']].forEach(([heading, text]) => {
+      const step = document.createElement('div'); step.className = 'help-step'; const h = document.createElement('b'); h.textContent = heading; step.append(h, paragraph(text)); $('panelBody').append(step);
+    });
+  }
   function showCards() {
-    const box = $('cards'); [...box.querySelectorAll('.card')].forEach(c => c.remove());
-    $('cardsH').textContent = `波次结束 · 剩余 ${g.pending} 次选卡`;
+    const box = $('cardOffers'); box.replaceChildren();
+    $('cardsH').textContent = `第 ${g.stage} 关完成 · 选卡 ${g.pending} 次`;
     for (const o of g.offers) {
-      const c = document.createElement('div'); c.className = 'card r' + o.tier; c.style.borderColor = o.color;
+      const c = document.createElement('button'); c.className = 'card r' + o.tier; c.style.borderColor = o.color;
       let pips = ''; for (let i = 1; i <= o.max; i++) pips += `<i class="${i <= o.lv ? 'on' : i <= o.to ? 'up' : ''}"></i>`;
       const req = o.req ? `<p class="req">需要：${o.req.map(r => BB.BYID[r].name).join(' + ')} 满级 ✔</p>` : '';
       c.innerHTML = `<div class="ic" style="border-color:${o.color}">${o.icon}</div><div style="flex:1"><span class="tag" style="background:${o.color}">${o.rarity}</span> <span class="tag cat">${o.cat}</span><span class="lv">${o.lv === 0 ? '新!' : `Lv${o.lv}`} → Lv${o.to}${o.gain > 1 ? ` (+${o.gain})` : ''}</span><br><b>${o.name}</b><div class="pips">${pips}</div><p>${o.desc}</p>${req}</div>`;
-      c.addEventListener('click', () => { SFX.click(); BB.pick(g, o.id); if (g.state === 'cards') showCards(); else show('cards', false); });
+      c.addEventListener('click', () => { if (platformBusy) return; SFX.click(); BB.pick(g, o.id); if (g.state === 'cards') showCards(); else show('cards', false); });
       box.appendChild(c);
     }
+    const used = g.rerolledOffer === g.offerVersion, free = run.freeRerolls > 0;
+    $('rerollBtn').disabled = used || (!free && !services.rewardAvailable);
+    $('rerollBtn').textContent = used ? '这组已重抽' : free ? '免费重抽 · 至少稀有（1 / 局）' : services.rewardAvailable ? '看广告重抽 · 至少稀有' : '本局免费重抽已用完';
+    $('rerollNote').textContent = '重抽保留本次选卡次数，成绩计入辅助榜';
     show('cards', true);
   }
   function startTransition(day) {
-    const tr = $('trans'); $('transT').innerHTML = `第 ${day} 天<small>${day % 5 === 0 ? '⚠ 首领来袭：' + ['骷髅王', '巫妖', '岩石巨像'][(day / 5 - 1) % 3] : day % 3 === 0 && day >= 6 ? '👑 精英日：大量精英骷髅' : ({ 3: '新敌人：疾行骷髅', 4: '新敌人：重甲骷髅', 6: '新敌人：骷髅射手、分裂骷髅', 7: '新敌人：盾卫骷髅', 8: '新敌人：自爆骷髅' }[day] || '骷髅越来越多了…')}</small>`;
+    const active = g, info = BB.stageInfo({ chapter: g.chapter, day, campaign: true });
+    const tr = $('trans'); $('transT').innerHTML = `第 ${info.stage} 关<small>${info.tip}</small>`;
     tr.style.opacity = 0; show('trans', true); requestAnimationFrame(() => tr.style.opacity = 1);
-    setTimeout(() => { BB.nextDay(g); g.bot.path = []; tr.style.opacity = 0; setTimeout(() => show('trans', false), 400); }, 1500);
+    later(() => { if (g !== active) return; BB.nextDay(g); g.bot.path = []; tr.style.opacity = 0; last = performance.now(); later(() => { if (g === active) show('trans', false); }, 400); if (document.hidden) $('pause').onclick(); }, 1400);
   }
   function handleEvents() {
     for (const ev of g.events) {
@@ -344,33 +538,86 @@
       if (ev.type === 'boss' && ev.name) toast(`💀 ${ev.name} 出现！`);
       if (ev.type === 'waveEnd') { drag = null; showCards(); }
       if (ev.type === 'transition') { show('cards', false); startTransition(ev.day); }
-      if (ev.type === 'over') gameOver();
+      if (ev.type === 'over') gameOver(false);
+      if (ev.type === 'victory') { SFX.waveEnd(); gameOver(true); }
     }
     g.events.length = 0;
   }
-  function gameOver() {
-    drag = null; const survived = g.day - 1, b = Math.max(best(), survived);
-    localStorage.setItem(BEST_KEY, b);
-    $('overDays').textContent = `坚持了 ${survived} 天（倒在第 ${g.day} 天）`;
-    $('overStat').textContent = `等级 ${g.level} · 击败骷髅 ${g.kills}`;
-    $('overBest').textContent = (survived >= b && survived > 0 ? '🏆 新纪录！' : '') + `最佳纪录：${b} 天`;
+  function resultForRun() {
+    return { runId: run.id, chapter: g.chapter, clearedStage: g.clearedStage, kills: g.kills, level: g.level, revives: g.revives, victory: g.state === 'victory', assisted: run.assisted || g.revives > 0, duration: Math.min(86400, g.t) };
+  }
+  function finishRun() {
+    if (!run || run.settled) return true;
+    const result = BBMeta.settle(profile, resultForRun());
+    if (!commit(result)) return false;
+    run.settled = true; run.reward = result.reward;
+    if (services.cloudAvailable) {
+      const e = result.entry;
+      services.submitScore({ runId: e.runId, name: '守门员', stage: e.clearedStage, kills: e.kills, level: e.level, assisted: e.assisted, createdAt: Date.now() }).then(response => { if (!response.ok) notice('本地成绩已保存，云榜提交未成功'); });
+    }
+    return true;
+  }
+  function gameOver(victory) {
+    drag = null; $('overHeading').textContent = victory ? '整章通关！' : '战车被摧毁'; $('resultIcon').textContent = victory ? '🏆' : '⚑';
+    $('overHeading').style.color = victory ? '#f3d35c' : '#e8775a';
+    $('overDays').textContent = `${BB.CHAPTERS[g.chapter - 1].name} · 完成 ${g.clearedStage - (g.chapter - 1) * 10} / 10 关`;
+    $('overStat').textContent = `等级 ${g.level} · 击败 ${g.kills} · ${run.assisted || g.revives ? '辅助远征' : '纯净挑战'}`;
+    $('overBest').textContent = victory ? (g.chapter === 6 ? '六章远征完成！' : '下一章已解锁') : `倒在第 ${g.stage} 关`;
+    const projected = BBMeta.settle(profile, resultForRun());
+    if (victory && finishRun()) $('resultReward').textContent = `金币 +${run.reward}`;
+    else $('resultReward').textContent = projected.ok ? `结算金币 ◈ ${projected.reward}` : '';
+    const canRevive = !victory && g.revives === 0 && services.rewardAvailable;
+    $('reviveBtn').hidden = !canRevive; $('reviveBtn').disabled = false;
+    $('reviveNote').textContent = canRevive ? '本局限一次 · 复活后无敌 3 秒' : '';
+    $('againBtn').textContent = victory && g.chapter < 6 ? '前往下一章 →' : '再来一局';
+    $('homeBtn').textContent = victory ? '回到营地' : '结算并回营地';
     $('hud').style.display = 'none';
-    setTimeout(() => show('over', true), 600);
+    const active = g; later(() => { if (g === active) show('over', true); }, 450);
   }
   function start() {
-    initAudio(); SFX.click();
-    g = BB.create(W, H, safe().b); hudCache = ''; paused = false;
-    ['title', 'over', 'cards', 'paused'].forEach(i => show(i, false));
+    if (platformBusy) return;
+    if (run && !finishRun()) return;
+    clearTimers(); initAudio(); SFX.click();
+    g = BB.create(W, H, safe().b, { chapter: selectedChapter }); bg = makeBg(W, H); hudCache = ''; paused = false; drag = null; acc = 0;
+    run = { id: uid(), settled: false, assisted: false, freeRerolls: 1 };
+    if (profile.equipped && BB.applyRecruit(g, profile.equipped, profile.collection[profile.equipped])) run.assisted = true;
+    ['title', 'over', 'cards', 'paused', 'panel', 'trans'].forEach(i => show(i, false)); panelView = '';
     $('hud').style.display = 'block';
-    $('transT').innerHTML = '第 1 天<small>守住战车！</small>'; const tr = $('trans'); tr.style.opacity = 1; show('trans', true);
-    g.state = 'intro'; setTimeout(() => { tr.style.opacity = 0; g.state = 'play'; setTimeout(() => show('trans', false), 400); }, 1100);
+    const info = BB.stageInfo(g); $('transT').innerHTML = `${info.name}<small>第 ${info.stage} 关 · ${info.tip}</small>`; const tr = $('trans'); tr.style.opacity = 1; show('trans', true);
+    const active = g; g.state = 'intro'; later(() => { if (g !== active) return; tr.style.opacity = 0; g.state = 'play'; last = performance.now(); later(() => { if (g === active) show('trans', false); }, 400); if (document.hidden) $('pause').onclick(); }, 1100);
   }
-  function title() { g = null; ['over', 'paused', 'cards'].forEach(i => show(i, false)); $('hud').style.display = 'none'; show('title', true); $('bestT').textContent = best() ? `最佳纪录：坚持 ${best()} 天` : ''; }
-  $('startBtn').onclick = start; $('againBtn').onclick = start;
+  function title() { clearTimers(); g = null; run = null; paused = false; drag = null; acc = 0; panelGeneration++; ['over', 'paused', 'cards', 'trans', 'panel'].forEach(i => show(i, false)); panelView = ''; $('hud').style.display = 'none'; show('title', true); bg = makeBg(W, H); refreshLobby(); }
+  $('startBtn').onclick = start;
+  $('againBtn').onclick = () => { if (platformBusy || !finishRun()) return; if (g.state === 'victory' && g.chapter < 6) selectedChapter = g.chapter + 1; start(); };
+  $('homeBtn').onclick = () => { if (!platformBusy && finishRun()) title(); };
+  $('chapterBtn').onclick = () => openPanel('chapters'); $('recruitBtn').onclick = () => { lastDraws = []; openPanel('recruit'); };
+  $('collectionBtn').onclick = () => openPanel('collection'); $('rankBtn').onclick = () => openPanel('ranks');
+  $('supplyBtn').onclick = $('walletBtn').onclick = () => openPanel('supplies'); $('helpBtn').onclick = () => openPanel('help');
+  $('closePanel').onclick = () => { if (platformBusy) return; panelView = ''; panelGeneration++; rankRequest++; show('panel', false); show('title', true); refreshLobby(); };
+  $('rerollBtn').onclick = async () => {
+    if (!g || g.state !== 'cards' || platformBusy || g.rerolledOffer === g.offerVersion) return;
+    const active = g, version = g.offerVersion, free = run.freeRerolls > 0;
+    $('rerollBtn').disabled = true;
+    const reward = free ? { ok: true, completed: true } : await rewarded('reroll');
+    if (g !== active || g.state !== 'cards' || g.offerVersion !== version) return;
+    if (reward.ok && reward.completed && BB.reroll(g, { minTier: 1 })) { if (free) run.freeRerolls--; run.assisted = true; SFX.levelup(); }
+    else notice(serviceMessage(reward.error, '未完成广告，本次没有重抽'));
+    showCards();
+  };
+  $('reviveBtn').onclick = async () => {
+    if (!g || g.state !== 'over' || g.revives || platformBusy || run.settled) return;
+    const active = g; $('reviveBtn').disabled = true;
+    const reward = await rewarded('revive');
+    if (g !== active || g.state !== 'over' || run.settled) return;
+    if (reward.ok && reward.completed && BB.revive(g)) { run.assisted = true; show('over', false); $('hud').style.display = 'block'; last = performance.now(); acc = 0; toast('战车修复 · 无敌 3 秒'); }
+    else { $('reviveBtn').disabled = false; notice(serviceMessage(reward.error, '未完成广告，没有消耗复活机会')); }
+  };
   $('pause').onclick = () => { if (!g || g.state !== 'play') return; paused = true; drag = null; show('paused', true); };
   $('resumeBtn').onclick = () => { paused = false; show('paused', false); last = performance.now(); };
-  $('quitBtn').onclick = () => { paused = false; title(); };
+  $('quitBtn').onclick = () => { if (finishRun()) title(); };
   document.addEventListener('visibilitychange', () => { if (document.hidden && g && g.state === 'play' && !paused) $('pause').onclick(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && dialogFinish) dialogFinish(false); });
+  if (preview) { const ribbon = document.createElement('div'); ribbon.className = 'preview-ribbon'; ribbon.textContent = '接入测试 · 独立存档 · 无真实广告或扣款'; app.append(ribbon); }
 
   // ---------- 主循环 ----------
   let last = performance.now(), acc = 0; const STEP = 1 / 60;
@@ -388,5 +635,7 @@
     }
     requestAnimationFrame(loop);
   }
-  resize(); title(); requestAnimationFrame(loop);
+  resize(); title();
+  if (!BBMeta.save(storage, profile, saveKey)) notice('存档暂不可用，奖励与抽卡需要浏览器允许本地存储');
+  requestAnimationFrame(loop);
 })();
