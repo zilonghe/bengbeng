@@ -1,0 +1,17 @@
+name: Game checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  game:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check main.js
+      - run: node campaign.test.js
+      - run: node economy.test.js
+      - run: node services.test.js
+      - run: node ui.test.js

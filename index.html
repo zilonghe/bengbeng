@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#5f6b45">
 <title>二号机，蹦蹦守门员</title>
+<link rel="stylesheet" href="hub.css">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 html,body{margin:0;height:100%;overflow:hidden;background:#2b2a24;font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#2e2b24;touch-action:none;overscroll-behavior:none}
@@ -72,17 +73,29 @@ h1 small{display:block;font-size:22px;color:#f3d35c}
   </div>
   <div id="toast"></div>
   <div class="ov show" id="title">
+    <div class="hub-top"><span>荒野远征 · 60 关</span><button class="wallet" id="walletBtn" aria-label="打开补给">◈ <span id="coins">360</span></button></div>
     <h1>二号机，<small>蹦蹦守门员</small></h1>
-    <div class="hint">🖐 <b>长按并拖拽</b>画出路线，二号机会沿蓝色虚线蹦过去<br>守住身后的战车！它和二号机会自动开火<br>捡绿色宝石升级，每天结束挑选强化卡<br>二号机还能<b>挡下</b>射向战车的骨弹！<br>卡牌分 普通/稀有/史诗，两张满级可<b>进化</b></div>
-    <button class="btn" id="startBtn">出 发</button>
-    <div class="best" id="bestT"></div>
+    <div class="lobby-bottom">
+      <button class="chapter-select" id="chapterBtn"><span><small id="chapterNo">第一章 · 01—10</small><strong id="chapterName">边境草原</strong></span><span class="chapter-arrow">›</span></button>
+      <div class="route-progress" id="routeProgress" aria-label="章节进度"></div>
+      <div class="loadout-line" id="loadoutLine">空手出发 · 纯净挑战</div>
+      <button class="btn" id="startBtn">开始远征 <span>→</span></button>
+      <div class="best" id="bestT"></div>
+      <nav class="hub-nav" aria-label="营地"><button id="recruitBtn">招募</button><button id="collectionBtn">图鉴</button><button id="rankBtn">战绩</button><button id="supplyBtn">补给</button></nav>
+      <button class="text-btn help-btn" id="helpBtn">怎么玩</button>
+    </div>
   </div>
-  <div class="ov" id="cards"><h2 id="cardsH">波次结束 · 剩余 1 次选卡</h2></div>
+  <div class="ov" id="cards"><h2 id="cardsH">波次结束 · 剩余 1 次选卡</h2><div id="cardOffers"></div><button class="small-btn" id="rerollBtn">补给重抽 · 本次至少稀有</button><p class="fine-print" id="rerollNote"></p></div>
   <div class="ov" id="trans"><div id="transT">第 2 天</div></div>
-  <div class="ov" id="paused"><h2 style="color:#f1e9c8">暂停</h2><button class="btn" id="resumeBtn">继 续</button><br><button class="btn" id="quitBtn" style="background:#d9cfa4;font-size:16px;padding:8px 24px">回到标题</button></div>
-  <div class="ov" id="over"><h2>战车被摧毁</h2><p id="overDays"></p><p id="overStat" style="font-size:14px;color:#a9a283"></p><p class="best" id="overBest"></p><br><button class="btn" id="againBtn">再来一局</button></div>
+  <div class="ov" id="paused"><h2 style="color:#f1e9c8">暂停</h2><button class="btn" id="resumeBtn">继 续</button><br><button class="btn" id="quitBtn" style="background:#d9cfa4;font-size:16px;padding:8px 24px">结算并回营地</button></div>
+  <div class="ov" id="over"><div class="result-icon" id="resultIcon">⚑</div><h2 id="overHeading">战车被摧毁</h2><p id="overDays"></p><p id="overStat" style="font-size:14px;color:#c5bea3"></p><p class="best" id="overBest"></p><p id="resultReward"></p><button class="btn" id="reviveBtn">看广告复活 · 60% 生命</button><p class="fine-print" id="reviveNote"></p><button class="btn" id="againBtn">再来一局</button><button class="text-btn" id="homeBtn">结算并回营地</button></div>
+  <div class="ov" id="panel"><header class="panel-header"><button id="closePanel" class="back-btn" aria-label="回到营地">‹</button><h2 id="panelTitle"></h2><span id="panelCoins"></span></header><div id="panelBody"></div><div id="panelNotice" role="status"></div></div>
+  <div class="ov" id="platformDialog" role="dialog" aria-modal="true" aria-labelledby="platformHeading"><div class="platform-content"><small>平台接入测试 · 不产生真实费用</small><h2 id="platformHeading"></h2><p id="platformMessage"></p><button class="btn" id="platformConfirm">完成测试</button><button class="text-btn" id="platformCancel">取消</button></div></div>
+  <div id="liveNotice" role="status" aria-live="polite"></div>
 </div>
 <script src="game.js"></script>
+<script src="economy.js"></script>
+<script src="services.js"></script>
 <script src="main.js"></script>
 </body>
 </html>
